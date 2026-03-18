@@ -1,9 +1,9 @@
 # --------------------------------------------------
-# 🔥 ELITE PROP MODEL (FINAL + ALL SYSTEMS INTEGRATED)
+# 🔥 ELITE PROP MODEL (FULL SYSTEM INTEGRATION)
 # --------------------------------------------------
 
 # --------------------------------------------------
-# ✅ SAFE IMPORTS (NEVER CRASH SERVER)
+# ✅ SAFE IMPORTS (NO CRASHES EVER)
 # --------------------------------------------------
 
 try:
@@ -20,11 +20,6 @@ try:
     from usage_model import project_usage
 except:
     def project_usage(player): return 0.22
-
-try:
-    from lineup_model import lineup_adjustment
-except:
-    def lineup_adjustment(a, b): return 0
 
 try:
     from time_series_model import predict_trend
@@ -64,6 +59,11 @@ except:
     def role_adjustment(*args, **kwargs): return 0
 
 try:
+    from lineup_model import player_lineup_adjustment
+except:
+    def player_lineup_adjustment(*args, **kwargs): return 0
+
+try:
     from line_movement_tracker import get_movement
 except:
     def get_movement(*args, **kwargs): return 0
@@ -95,13 +95,15 @@ def base_model(player, stat, team=None, opponent=None, sentiment=0):
     # -----------------------------
     base_val = minutes * usage * rate
 
+    # 🔥 LINEUP BOOST (STARTER / BENCH)
+    base_val += player_lineup_adjustment(player, team)
+
     # 🔥 ROLE + INJURY
     base_val += role_adjustment(player, team)
 
     # 🔥 MATCHUP + PACE
     if team and opponent:
         base_val += matchup_boost(player, stat, team, opponent)
-        base_val += lineup_adjustment(team, opponent) * 0.12
 
     # 🔥 TREND + SENTIMENT
     base_val += sentiment
@@ -233,7 +235,7 @@ def evaluate_prop(player, line, stat="points", team=None, opponent=None, sentime
 
         edge = projection - line
 
-        # 🔥 MARKET SIGNAL (LINE MOVEMENT)
+        # 🔥 LINE MOVEMENT (MARKET SIGNAL)
         movement = get_movement(player, stat)
 
         if movement > 1:
