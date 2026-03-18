@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🔥 ELITE PROP TRACKER (FULLY UPGRADED)
+# 🔥 ELITE PROP TRACKER (FINAL VERSION)
 # --------------------------------------------------
 
 import json
@@ -39,7 +39,6 @@ def log_prop(prop):
 
     data = load_history()
 
-    # prevent duplicates
     for p in data:
         if (
             p["player"] == prop["player"]
@@ -85,7 +84,7 @@ def log_prop(prop):
     save_history(data)
 
 # --------------------------------------------------
-# ESPN STATS FETCH
+# 🔥 ESPN STATS FETCH
 # --------------------------------------------------
 
 def fetch_player_stats():
@@ -140,7 +139,7 @@ def fetch_player_stats():
         return {}
 
 # --------------------------------------------------
-# AUTO GRADING
+# 🔥 AUTO GRADING
 # --------------------------------------------------
 
 def grade_props(results):
@@ -194,7 +193,7 @@ def auto_grade():
     print("✅ AUTO GRADING COMPLETE")
 
 # --------------------------------------------------
-# CLV TRACKING
+# 🔥 CLV TRACKING (FIXED + CORRECT)
 # --------------------------------------------------
 
 def update_clv(player, stat, current_line):
@@ -209,7 +208,12 @@ def update_clv(player, stat, current_line):
         if p["player"] == player and p["stat"] == stat:
 
             p["closing_line"] = current_line
-            p["clv"] = round(current_line - p["bet_line"], 2)
+
+            # 🔥 CORRECT CLV LOGIC
+            if p["bet"] == "OVER":
+                p["clv"] = round(current_line - p["bet_line"], 2)
+            else:
+                p["clv"] = round(p["bet_line"] - current_line, 2)
 
     save_history(data)
 
@@ -224,7 +228,7 @@ def average_clv():
     return round(sum(clvs) / len(clvs), 2)
 
 # --------------------------------------------------
-# PERFORMANCE METRICS
+# 📊 PERFORMANCE METRICS
 # --------------------------------------------------
 
 def hit_rate():
@@ -270,7 +274,7 @@ def roi():
     }
 
 # --------------------------------------------------
-# SUMMARY DASHBOARD
+# 📊 DASHBOARD SUMMARY
 # --------------------------------------------------
 
 def summary():
