@@ -1,126 +1,163 @@
 # --------------------------------------------------
-# 🧠 LINEUP IMPACT ENGINE (PRO VERSION)
+# 🔥 ELITE LINEUP MODEL (STARTERS + MINUTES BOOST)
 # --------------------------------------------------
 
-# STAR IMPACT (when OUT → lowers team total)
-LINEUP_IMPACT = {
-    "Trae Young": -6,
-    "Luka Doncic": -7,
-    "Stephen Curry": -6,
-    "Nikola Jokic": -6,
-    "Kevin Durant": -6,
-    "LeBron James": -5,
-    "Joel Embiid": -7,
-    "Giannis Antetokounmpo": -7
+import requests
+import time
+
+# --------------------------------------------------
+# CONFIG
+# --------------------------------------------------
+
+URL = "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json"
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0"
 }
 
-# ROLE PLAYER IMPACT (smaller effect)
-ROLE_IMPACT = {
-    "Austin Reaves": -2,
-    "Klay Thompson": -3,
-    "Jamal Murray": -3
-}
-
-# TEAM INJURIES (will be auto-updated later)
-TEAM_INJURIES = {}
+CACHE = {}
+LAST_FETCH = 0
+CACHE_TTL = 120  # 2 min
 
 
 # --------------------------------------------------
-# 🔥 MAIN TEAM ADJUSTMENT
+# FETCH LIVE LINEUPS
 # --------------------------------------------------
 
-def lineup_adjustment(home_team, away_team):
+def fetch_lineups():
 
-    adjustment = 0
+    global CACHE, LAST_FETCH
 
-    home_injuries = TEAM_INJURIES.get(home_team, [])
-    away_injuries = TEAM_INJURIES.get(away_team, [])
+    now = time.time()
 
-    # -------------------------
-    # HOME TEAM
-    # -------------------------
-    for player in home_injuries:
+    if now - LAST_FETCH < CACHE_TTL:
+        return CACHE
 
-        if player in LINEUP_IMPACT:
-            adjustment += LINEUP_IMPACT[player]
+    try:
+        res = requests.get(URL, headers=HEADERS, timeout=5)
+        data = res.json()
 
-        elif player in ROLE_IMPACT:
-            adjustment += ROLE_IMPACT[player]
+        lineups = {}
 
-    # -------------------------
-    # AWAY TEAM
-    # -------------------------
-    for player in away_injuries:
+        for game in data.get("scoreboard", {}).get("games", []):
 
-        if player in LINEUP_IMPACT:
-            adjustment += LINEUP_IMPACT[player]
+            for side in ["homeTeam", "awayTeam"]:
 
-        elif player in ROLE_IMPACT:
-            adjustment += ROLE_IMPACT[player]
+                team = game[side]["teamName"]
 
-    return adjustment
+                starters = []
+
+                for p in game[side].get("players", []):
+
+                    if p.get("starter"):
+                        name = f"{p['firstName']} {p['familyName']}"
+                        starters.append(name)
+
+                lineups[team] = starters
+
+        CACHE = lineups
+        LAST_FETCH = now
+
+        return lineups
+
+    except Exception as e:
+        print("❌ LINEUP FETCH ERROR:", e)
+        return {}
 
 
 # --------------------------------------------------
-# 🔥 PLAYER USAGE BOOST (FOR PROPS)
+# CHECK IF STARTER
 # --------------------------------------------------
 
-def usage_boost(player, team):
+def is_starter(player, team):
 
-    injuries = TEAM_INJURIES.get(team, [])
+    lineups = fetch_lineups()
+
+    if not team or team not in lineups:
+        return None  # unknown
+
+    return player in lineups[team]
+
+
+# --------------------------------------------------
+# MINUTES BOOST (CORE LOGIC)
+# --------------------------------------------------
+
+def minutes_boost(player, team=None):
+
+    try:
+        starter = is_starter(player, team)
+
+        # unknown → no adjustment
+        if starter is None:
+            return 0
+
+        # 🔥 STARTER BOOST
+        if starter:
+            return 3.5  # +3.5 projected points impact
+
+        # 🔻 BENCH PENALTY
+        return -2.5
+
+    except:
+        return 0
+
+
+# --------------------------------------------------
+# USAGE BOOST FROM LINEUP CHANGES
+# --------------------------------------------------
+
+def lineup_usage_boost(player, team=None):
+
+    lineups = fetch_lineups()
+
+    if not team or team not in lineups:
+        return 0
+
+    starters = lineups[team]
+
+    # if star missing from lineup → boost others
+    missing_stars = [
+        "LeBron James",
+        "Stephen Curry",
+        "Luka Doncic",
+        "Nikola Jokic"
+    ]
 
     boost = 0
 
-    for injured in injuries:
+    for star in missing_stars:
 
-        # star out → teammates benefit
-        if injured in LINEUP_IMPACT and injured != player:
-            boost += 2
+        if star not in starters:
+            boost += 1.5
 
     return boost
 
 
 # --------------------------------------------------
-# 🔥 INJURY INGESTION (AUTO UPDATE)
+# FINAL LINEUP ADJUSTMENT
 # --------------------------------------------------
 
-def update_team_injuries(injury_data):
+def lineup_adjustment(team=None, opponent=None):
 
-    """
-    injury_data format:
-    {
-        "Los Angeles Lakers": ["LeBron James"],
-        "Dallas Mavericks": ["Luka Doncic"]
-    }
-    """
-
-    global TEAM_INJURIES
-
-    TEAM_INJURIES = injury_data
+    # lightweight version for game totals
+    return 0
 
 
 # --------------------------------------------------
-# 🔥 TEAM-LEVEL BREAKDOWN (DEBUG TOOL)
+# PLAYER-LEVEL ADJUSTMENT (USED IN PROP MODEL)
 # --------------------------------------------------
 
-def get_lineup_report(team):
+def player_lineup_adjustment(player, team=None):
 
-    injuries = TEAM_INJURIES.get(team, [])
+    try:
+        boost = 0
 
-    report = []
+        boost += minutes_boost(player, team)
+        boost += lineup_usage_boost(player, team)
 
-    for player in injuries:
+        return round(boost, 2)
 
-        impact = 0
-
-        if player in LINEUP_IMPACT:
-            impact = LINEUP_IMPACT[player]
-        elif player in ROLE_IMPACT:
-            impact = ROLE_IMPACT[player]
-
-        report.append({
-            "player": player,
-            "impact": impact
-        })
-
-    return report
+    except Exception as e:
+        print("❌ LINEUP MODEL ERROR:", e)
+        return 0
