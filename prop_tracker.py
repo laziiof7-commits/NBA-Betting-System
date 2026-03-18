@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🔥 ELITE PROP TRACKER (ML + ANALYTICS ENGINE)
+# 🔥 ELITE PROP TRACKER (FULL ML + CLV SYSTEM)
 # --------------------------------------------------
 
 import json
@@ -11,7 +11,7 @@ FILE = "prop_history.json"
 
 
 # --------------------------------------------------
-# LOAD / SAVE (SAFE)
+# LOAD / SAVE
 # --------------------------------------------------
 
 def load_history():
@@ -30,7 +30,7 @@ def save_history(data):
         with open(FILE, "w") as f:
             json.dump(data, f, indent=2)
     except Exception as e:
-        print("SAVE ERROR:", e)
+        print("❌ SAVE ERROR:", e)
 
 
 # --------------------------------------------------
@@ -41,6 +41,7 @@ def log_prop(prop):
 
     data = load_history()
 
+    # prevent duplicates
     for p in data:
         if (
             p["player"] == prop["player"]
@@ -61,13 +62,13 @@ def log_prop(prop):
         "confidence": prop.get("confidence", 0),
         "bet": prop["bet"],
 
-        # 🔥 ML FEATURES (CRITICAL)
+        # 🔥 ML FEATURES
         "real": prop.get("real", 0),
         "model": prop.get("model", 0),
         "trend": prop.get("trend", 0),
         "nn": prop.get("nn", 0),
 
-        "timestamp": str(datetime.utcnow()),
+        "timestamp": datetime.utcnow().isoformat(),
 
         # CLV
         "bet_line": prop["line"],
@@ -88,10 +89,10 @@ def log_prop(prop):
 
 
 # --------------------------------------------------
-# 📈 CLV TRACKING
+# 🔄 LIVE CLV TRACKING
 # --------------------------------------------------
 
-def update_clv(player, stat, current_line):
+def update_clv_from_props(current_props):
 
     data = load_history()
 
@@ -100,10 +101,17 @@ def update_clv(player, stat, current_line):
         if p["result"] is not None:
             continue
 
-        if p["player"] == player and p["stat"] == stat:
+        for cp in current_props:
 
-            p["closing_line"] = current_line
-            p["clv"] = round(current_line - p["bet_line"], 2)
+            if (
+                cp["player"] == p["player"]
+                and cp["stat"].lower() == p["stat"].lower()
+            ):
+
+                new_line = cp["line"]
+
+                p["closing_line"] = new_line
+                p["clv"] = round(new_line - p["bet_line"], 2)
 
     save_history(data)
 
@@ -113,6 +121,13 @@ def update_clv(player, stat, current_line):
 # --------------------------------------------------
 
 def grade_props(results):
+
+    """
+    results format:
+    {
+        "LeBron James": {"points": 31, "rebounds": 8}
+    }
+    """
 
     data = load_history()
 
@@ -170,7 +185,7 @@ def hit_rate():
 
 
 # --------------------------------------------------
-# 🔥 RECENT FORM (NEW)
+# 🔥 RECENT HIT RATE
 # --------------------------------------------------
 
 def recent_hit_rate(last_n=20):
@@ -212,7 +227,7 @@ def roi():
 
 
 # --------------------------------------------------
-# 📈 CLV
+# 📈 CLV ANALYTICS
 # --------------------------------------------------
 
 def average_clv():
@@ -259,69 +274,7 @@ def edge_buckets():
 
 
 # --------------------------------------------------
-# 🧠 PLAYER PERFORMANCE (NEW)
-# --------------------------------------------------
-
-def player_stats():
-
-    data = load_history()
-    stats = {}
-
-    for p in data:
-
-        if p["result"] is None:
-            continue
-
-        player = p["player"]
-
-        if player not in stats:
-            stats[player] = {"win": 0, "total": 0}
-
-        stats[player]["total"] += 1
-
-        if p["result"] == "WIN":
-            stats[player]["win"] += 1
-
-    return {
-        k: round(v["win"] / v["total"], 2)
-        for k, v in stats.items()
-        if v["total"] > 5
-    }
-
-
-# --------------------------------------------------
-# 📊 STAT TYPE PERFORMANCE (NEW)
-# --------------------------------------------------
-
-def stat_performance():
-
-    data = load_history()
-    stats = {}
-
-    for p in data:
-
-        if p["result"] is None:
-            continue
-
-        stat = p["stat"]
-
-        if stat not in stats:
-            stats[stat] = {"win": 0, "total": 0}
-
-        stats[stat]["total"] += 1
-
-        if p["result"] == "WIN":
-            stats[stat]["win"] += 1
-
-    return {
-        k: round(v["win"] / v["total"], 2)
-        for k, v in stats.items()
-        if v["total"] > 5
-    }
-
-
-# --------------------------------------------------
-# 📊 SUMMARY (FULL DASHBOARD)
+# 📊 SUMMARY
 # --------------------------------------------------
 
 def summary():
@@ -331,7 +284,5 @@ def summary():
         "recent_hit_rate": recent_hit_rate(),
         "roi": roi(),
         "avg_clv": average_clv(),
-        "edge_performance": edge_buckets(),
-        "player_performance": player_stats(),
-        "stat_performance": stat_performance()
+        "edge_performance": edge_buckets()
     }
