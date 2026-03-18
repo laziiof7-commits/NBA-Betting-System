@@ -1,65 +1,25 @@
-# --------------------------------------------------
-# 🔥 ODDS API PROP SCRAPER (BEST LINE + SAFE)
-# --------------------------------------------------
-
 import requests
 import os
 
-# --------------------------------------------------
-# CONFIG
-# --------------------------------------------------
-
 API_KEY = os.getenv("ODDS_API_KEY")
-
-URL = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
-
-# --------------------------------------------------
-# MARKET MAP
-# --------------------------------------------------
-
-def map_market(key):
-
-    return {
-        "player_points": "points",
-        "player_rebounds": "rebounds",
-        "player_assists": "assists"
-    }.get(key)
-
-# --------------------------------------------------
-# BEST LINE LOGIC
-# --------------------------------------------------
-
-def choose_best(existing, new_line):
-
-    if existing is None:
-        return new_line
-
-    # 🔥 lower line is better for OVER betting
-    return min(existing, new_line)
-
-# --------------------------------------------------
-# MAIN FETCH
-# --------------------------------------------------
 
 def get_odds_props():
 
     if not API_KEY:
-        print("❌ ODDS_API_KEY missing")
+        print("❌ Missing ODDS_API_KEY")
         return []
+
+    url = "https://api.the-odds-api.com/v4/sports/basketball_nba/odds"
 
     params = {
         "apiKey": API_KEY,
         "regions": "us",
         "markets": "player_points,player_rebounds,player_assists",
-        "oddsFormat": "decimal"
+        "oddsFormat": "american"
     }
 
     try:
-        res = requests.get(URL, params=params, headers=HEADERS, timeout=6)
+        res = requests.get(url, params=params, timeout=10)
 
         if res.status_code != 200:
             print(f"❌ Odds API error: {res.status_code}")
@@ -67,7 +27,7 @@ def get_odds_props():
 
         data = res.json()
 
-        best_lines = {}
+        props = []
 
         for game in data:
 
@@ -75,50 +35,33 @@ def get_odds_props():
 
                 for market in book.get("markets", []):
 
-                    stat = map_market(market.get("key"))
+                    stat_map = {
+                        "player_points": "points",
+                        "player_rebounds": "rebounds",
+                        "player_assists": "assists"
+                    }
+
+                    stat = stat_map.get(market["key"])
 
                     if not stat:
                         continue
 
-                    for o in market.get("outcomes", []):
+                    for outcome in market.get("outcomes", []):
 
-                        player = o.get("description")
-                        line = o.get("point")
+                        player = outcome.get("description")
+                        line = outcome.get("point")
 
-                        if not player or line is None:
-                            continue
+                        if player and line:
+                            props.append({
+                                "player": player,
+                                "stat": stat,
+                                "line": line
+                            })
 
-                        player = player.strip()
-
-                        # init player
-                        if player not in best_lines:
-                            best_lines[player] = {}
-
-                        existing = best_lines[player].get(stat)
-
-                        best_lines[player][stat] = choose_best(existing, line)
-
-        # --------------------------------------------------
-        # CLEAN OUTPUT
-        # --------------------------------------------------
-
-        props = []
-
-        for player, stats in best_lines.items():
-
-            for stat, line in stats.items():
-
-                props.append({
-                    "player": player,
-                    "stat": stat,
-                    "line": line
-                })
-
-        print(f"✅ Best lines loaded: {len(props)}")
+        print(f"✅ Pulled {len(props)} sportsbook props")
 
         return props
 
     except Exception as e:
-        print("❌ Odds fetch failed:", e)
-        return []
+        print("❌ SCRAPER ERROR:", e)
         return []
