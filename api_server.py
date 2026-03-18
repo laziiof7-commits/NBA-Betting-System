@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🚀 ELITE API SERVER (REAL + FALLBACK + STABLE)
+# 🚀 ELITE API SERVER (MULTI-SOURCE + STABLE)
 # --------------------------------------------------
 
 from fastapi import FastAPI
@@ -7,7 +7,6 @@ from fastapi.responses import HTMLResponse
 import threading
 import time
 from datetime import datetime
-import requests
 import os
 import random
 
@@ -23,7 +22,8 @@ alerts = safe_import("alerts")
 prop_model = safe_import("prop_model")
 prop_tracker = safe_import("prop_tracker")
 lineup_model = safe_import("lineup_model")
-odds_scraper = safe_import("odds_prop_scraper")
+dk_scraper = safe_import("draftkings_scraper")
+pp_scraper = safe_import("prizepicks_scraper")
 
 # ---------------- SAFE FUNCTIONS ----------------
 
@@ -79,38 +79,54 @@ LAST_LINES = {}
 def generate_fallback_props():
 
     players = ["LeBron James", "Stephen Curry", "Luka Doncic", "Nikola Jokic"]
-    stats = ["points"]
+    stats = ["points", "rebounds", "assists"]
 
     props = []
 
     for player in players:
         for stat in stats:
 
+            base = {
+                "points": random.randint(24, 32),
+                "rebounds": random.randint(7, 12),
+                "assists": random.randint(6, 10)
+            }
+
             props.append({
                 "player": player,
                 "stat": stat,
-                "line": random.randint(24, 32)
+                "line": base[stat]
             })
 
-    print(f"⚠️ Using fallback props: {len(props)}")
+    print(f"⚠️ FALLBACK props: {len(props)}")
     return props
 
-# ---------------- FETCH PROPS ----------------
+# ---------------- MULTI-SOURCE FETCH ----------------
 
 def get_props():
 
+    # 🥇 DraftKings
     try:
-        if odds_scraper and hasattr(odds_scraper, "get_odds_props"):
-
-            props = odds_scraper.get_odds_props()
-
+        if dk_scraper and hasattr(dk_scraper, "get_dk_props"):
+            props = dk_scraper.get_dk_props()
             if props:
+                print(f"🔥 DRAFTKINGS: {len(props)} props")
                 return props
-
     except Exception as e:
-        print("❌ Odds API error:", e)
+        print("❌ DK ERROR:", e)
 
-    print("🚨 USING FALLBACK (API FAILED)")
+    # 🟡 PrizePicks
+    try:
+        if pp_scraper and hasattr(pp_scraper, "get_prizepicks_props"):
+            props = pp_scraper.get_prizepicks_props()
+            if props:
+                print(f"🟡 PRIZEPICKS: {len(props)} props")
+                return props
+    except Exception as e:
+        print("❌ PP ERROR:", e)
+
+    # 🔴 Fallback
+    print("🚨 USING FALLBACK")
     return generate_fallback_props()
 
 # ---------------- BUILD PROPS ----------------
@@ -132,7 +148,9 @@ def build_props():
             if not result:
                 continue
 
-            print(f"📊 {result['player']} {result['stat']} | Edge: {result['edge']}")
+            # 🔍 DEBUG
+            if abs(result["edge"]) > 1:
+                print(f"📊 {result['player']} {result['stat']} | Edge: {result['edge']}")
 
             # ---------------- LINE MOVEMENT ----------------
             key = f"{p['player']}-{p['stat']}"
@@ -142,8 +160,8 @@ def build_props():
             LAST_LINES[key] = p["line"]
             result["movement"] = round(movement, 2)
 
-            # ---------------- FILTER ----------------
-            if abs(result["edge"]) > 1.5:
+            # ---------------- FILTER (FIXED) ----------------
+            if abs(result["edge"]) > 1.5 and result["probability"] > 0.52:
 
                 size = bet_size_safe(result)
                 result["bet_size"] = size
@@ -156,8 +174,8 @@ def build_props():
                     log_prop_safe(result)
 
                     send_alert(
-                        f"🔥 {result['player']} {result['stat']} "
-                        f"{result['bet']} | Edge: {result['edge']} | Size: ${size}"
+                        f"🔥 {result['player']} {result['stat']} {result['bet']} "
+                        f"| Edge: {result['edge']} | Size: ${size}"
                     )
 
                 props_out.append(result)
@@ -189,7 +207,7 @@ def refresh_loop():
 
 @app.on_event("startup")
 def startup():
-    print("🚀 SYSTEM STARTED")
+    print("🚀 SYSTEM STARTED (MULTI-SOURCE MODE)")
     threading.Thread(target=refresh_loop, daemon=True).start()
 
 # ---------------- API ----------------
