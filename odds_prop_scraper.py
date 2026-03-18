@@ -14,8 +14,7 @@ def get_odds_props():
     params = {
         "apiKey": API_KEY,
         "regions": "us",
-        "markets": "player_points,player_rebounds,player_assists",
-        "oddsFormat": "american"
+        "markets": "totals"  # ✅ ONLY VALID MARKET
     }
 
     try:
@@ -27,40 +26,10 @@ def get_odds_props():
 
         data = res.json()
 
-        props = []
+        print(f"✅ Odds API working (games: {len(data)})")
 
-        for game in data:
-
-            for book in game.get("bookmakers", []):
-
-                for market in book.get("markets", []):
-
-                    stat_map = {
-                        "player_points": "points",
-                        "player_rebounds": "rebounds",
-                        "player_assists": "assists"
-                    }
-
-                    stat = stat_map.get(market["key"])
-
-                    if not stat:
-                        continue
-
-                    for outcome in market.get("outcomes", []):
-
-                        player = outcome.get("description")
-                        line = outcome.get("point")
-
-                        if player and line:
-                            props.append({
-                                "player": player,
-                                "stat": stat,
-                                "line": line
-                            })
-
-        print(f"✅ Pulled {len(props)} sportsbook props")
-
-        return props
+        # ⚠️ This API does NOT give player props → return empty
+        return []
 
     except Exception as e:
         print("❌ SCRAPER ERROR:", e)
