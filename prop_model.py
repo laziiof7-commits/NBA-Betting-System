@@ -1,10 +1,15 @@
 # --------------------------------------------------
-# 🔥 ELITE PROP MODEL (NO EXTERNAL DATA + STABLE ML)
+# 🔥 ELITE PROP MODEL (FINAL + MATCHUP + ML + SAFE)
 # --------------------------------------------------
 
 # --------------------------------------------------
-# SAFE IMPORTS
+# ✅ SAFE IMPORTS (NO SERVER CRASHES)
 # --------------------------------------------------
+
+try:
+    from player_data import project_points as real_points
+except:
+    def real_points(player): return None
 
 try:
     from minutes_model import project_minutes
@@ -14,7 +19,7 @@ except:
 try:
     from usage_model import project_usage
 except:
-    def project_usage(player): return 0.25
+    def project_usage(player): return 0.22
 
 try:
     from lineup_model import lineup_adjustment
@@ -36,15 +41,23 @@ try:
 except:
     def get_weights():
         return {
-            "model": 0.6,
-            "trend": 0.2,
-            "nn": 0.2
+            "real": 0.5,
+            "model": 0.3,
+            "trend": 0.1,
+            "nn": 0.1
         }
 
 try:
     from prop_tracker import hit_rate
 except:
     def hit_rate(): return 0.55
+
+# 🔥 NEW MATCHUP MODEL
+try:
+    from matchup_model import matchup_boost
+except:
+    def matchup_boost(*args, **kwargs): return 0
+
 
 # --------------------------------------------------
 # 🧠 BASE FEATURE ENGINE
@@ -56,6 +69,9 @@ def base_model(player, stat, team=None, opponent=None, sentiment=0):
     usage = project_usage(player)
     trend = predict_trend(player)
 
+    # -----------------------------
+    # STAT RATES
+    # -----------------------------
     stat_rates = {
         "points": 1.2,
         "rebounds": 0.34,
@@ -66,30 +82,49 @@ def base_model(player, stat, team=None, opponent=None, sentiment=0):
 
     base_val = minutes * usage * rate
 
+    # -----------------------------
+    # 🔥 MATCHUP BOOST (NEW)
+    # -----------------------------
+    if team and opponent:
+        base_val += matchup_boost(player, stat, team, opponent)
+
+    # lineup impact
     if team and opponent:
         base_val += lineup_adjustment(team, opponent) * 0.12
 
+    # sentiment + trend
     base_val += sentiment
     base_val += trend * 0.6
 
+    # -----------------------------
+    # NN LAYER
+    # -----------------------------
     features = [minutes, usage, sentiment, trend, len(player)]
     nn_val = predict_nn(features)
 
     return {
         "base": base_val,
         "trend": trend,
-        "nn": nn_val
+        "nn": nn_val,
+        "minutes": minutes,
+        "usage": usage
     }
 
+
 # --------------------------------------------------
-# 🚫 REAL DATA DISABLED (CRITICAL FIX)
+# 📊 REAL DATA
 # --------------------------------------------------
 
 def real_stat(player, stat):
+
+    if stat == "points":
+        return real_points(player)
+
     return None
 
+
 # --------------------------------------------------
-# 🔥 PROJECTION ENGINE (MODEL ONLY)
+# 🔥 PROJECTION ENGINE (ML BLEND)
 # --------------------------------------------------
 
 def project_stat(player, stat, team=None, opponent=None, sentiment=0):
@@ -102,13 +137,23 @@ def project_stat(player, stat, team=None, opponent=None, sentiment=0):
     trend = model["trend"]
     nn_val = model["nn"]
 
-    projection = (
-        base * weights.get("model", 0.6)
-        + trend * weights.get("trend", 0.2)
-        + nn_val * weights.get("nn", 0.2)
-    )
+    real = real_stat(player, stat)
+
+    # -----------------------------
+    # ML WEIGHTED BLEND
+    # -----------------------------
+    if real is not None:
+        projection = (
+            real * weights["real"]
+            + base * weights["model"]
+            + trend * weights["trend"]
+            + nn_val * weights["nn"]
+        )
+    else:
+        projection = base + trend * weights["trend"] + nn_val * weights["nn"]
 
     return round(projection, 2), model
+
 
 # --------------------------------------------------
 # 📊 PRA MODEL
@@ -122,13 +167,15 @@ def project_pra(player, team=None, opponent=None, sentiment=0):
 
     return round(pts + reb + ast, 2)
 
+
 # --------------------------------------------------
-# 🎯 PROBABILITY MODEL
+# 🎯 PROBABILITY MODEL (SMART + ADAPTIVE)
 # --------------------------------------------------
 
 def calculate_probability(edge):
 
     base = 0.5 + (edge / 14)
+
     base = max(min(base, 0.82), 0.40)
 
     perf = hit_rate()
@@ -137,6 +184,7 @@ def calculate_probability(edge):
 
     return round(min(adjusted, 0.88), 3)
 
+
 # --------------------------------------------------
 # 💎 EDGE SCORE
 # --------------------------------------------------
@@ -144,8 +192,9 @@ def calculate_probability(edge):
 def calculate_score(edge):
     return round(abs(edge) * 14, 2)
 
+
 # --------------------------------------------------
-# 🔥 CONFIDENCE
+# 🔥 CONFIDENCE MODEL
 # --------------------------------------------------
 
 def calculate_confidence(score, probability):
@@ -154,8 +203,9 @@ def calculate_confidence(score, probability):
 
     return round(min(conf, 1), 2)
 
+
 # --------------------------------------------------
-# 🎯 MAIN EVALUATOR
+# 🎯 MAIN PROP EVALUATOR
 # --------------------------------------------------
 
 def evaluate_prop(player, line, stat="points", team=None, opponent=None, sentiment=0):
@@ -187,8 +237,8 @@ def evaluate_prop(player, line, stat="points", team=None, opponent=None, sentime
             "confidence": confidence,
             "bet": bet,
 
-            # ML FEATURES
-            "real": 0,
+            # 🔥 ML FEATURES
+            "real": real_stat(player, stat) or 0,
             "model": model_data.get("base", 0),
             "trend": model_data.get("trend", 0),
             "nn": model_data.get("nn", 0)
@@ -198,8 +248,9 @@ def evaluate_prop(player, line, stat="points", team=None, opponent=None, sentime
         print("❌ PROP MODEL ERROR:", e)
         return None
 
+
 # --------------------------------------------------
-# 🎯 FILTER
+# 🎯 ELITE FILTER
 # --------------------------------------------------
 
 def is_good_prop(prop):
@@ -214,8 +265,9 @@ def is_good_prop(prop):
         and prop["confidence"] > 0.30
     )
 
+
 # --------------------------------------------------
-# 💰 BET SIZE
+# 💰 BET SIZING
 # --------------------------------------------------
 
 def prop_bet_size(prop, base_size=10):
