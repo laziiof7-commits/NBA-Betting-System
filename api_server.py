@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🚀 ELITE API SERVER (FULL SYSTEM - STABLE + COMPLETE)
+# 🚀 ELITE API SERVER (FULL DEBUG VERSION)
 # --------------------------------------------------
 
 from fastapi import FastAPI
@@ -10,24 +10,20 @@ import requests
 import os
 import random
 
-# ---------------- SAFE IMPORTS ----------------
+# ---------------- SAFE IMPORT SYSTEM ----------------
 
-def safe_import(module, fallback):
+def safe_import(module):
     try:
         return __import__(module, fromlist=["*"])
     except:
-        return fallback
+        return None
 
-# core modules
-rl_agent = safe_import("rl_agent", None)
-alerts = safe_import("alerts", None)
-prop_model = safe_import("prop_model", None)
-prop_tracker = safe_import("prop_tracker", None)
-lineup_model = safe_import("lineup_model", None)
-
-# optional upgrades
-odds_scraper = safe_import("odds_prop_scraper", None)
-live_alerts = safe_import("live_alerts", None)
+rl_agent = safe_import("rl_agent")
+alerts = safe_import("alerts")
+prop_model = safe_import("prop_model")
+prop_tracker = safe_import("prop_tracker")
+lineup_model = safe_import("lineup_model")
+odds_scraper = safe_import("odds_prop_scraper")
 
 # ---------------- SAFE FUNCTIONS ----------------
 
@@ -70,7 +66,7 @@ def get_odds_props_safe():
         return odds_scraper.get_odds_props()
     return []
 
-# 🔥 HARD BLOCK (KEEP)
+# 🔥 HARD BLOCK
 os.environ["DISABLE_PLAYER_DATA"] = "1"
 
 # ---------------- INIT ----------------
@@ -80,6 +76,7 @@ app = FastAPI()
 REFRESH_INTERVAL = 20
 games_cache = {}
 ALERTED = set()
+LAST_LINES = {}
 
 # ---------------- UTILS ----------------
 
@@ -96,7 +93,6 @@ def format_time(utc):
 # ---------------- SCHEDULE ----------------
 
 def get_schedule():
-
     try:
         url = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json"
         res = requests.get(url, timeout=5)
@@ -105,12 +101,10 @@ def get_schedule():
         out = {}
 
         for day in data["leagueSchedule"]["gameDates"][:2]:
-
             date = day["gameDate"]
             games = {}
 
             for g in day.get("games", []):
-
                 home = f"{g['homeTeam']['teamCity']} {g['homeTeam']['teamName']}"
                 away = f"{g['awayTeam']['teamCity']} {g['awayTeam']['teamName']}"
 
@@ -141,9 +135,7 @@ def calc_edge(model, market):
 def prob(edge):
     return max(min(0.5 + edge / 25, 0.75), 0.45)
 
-# --------------------------------------------------
-# 🔥 DYNAMIC FALLBACK PROPS
-# --------------------------------------------------
+# ---------------- FALLBACK PROPS ----------------
 
 def generate_fallback_props():
 
@@ -173,27 +165,46 @@ def generate_fallback_props():
                 "line": base_lines[stat]
             })
 
+    print(f"⚠️ Using fallback props: {len(props)}")
+
     return props
 
 # --------------------------------------------------
-# 🔥 PROPS ENGINE (FULLY SAFE + UPGRADED)
+# 🔥 DEBUG PROPS ENGINE
 # --------------------------------------------------
-
-LAST_LINES = {}
 
 def build_props():
 
     props_out = []
 
     try:
+        print("\n==============================")
+        print("📡 FETCHING PROPS")
+
         raw_props = get_odds_props_safe()
 
-        if not raw_props:
+        if raw_props:
+            print(f"✅ Scraper returned {len(raw_props)} props")
+            print("🔍 Sample:", raw_props[:2])
+        else:
+            print("❌ Scraper returned EMPTY")
+
+        # fallback detection
+        if not raw_props or len(raw_props) < 5:
+            print("🚨 SCRAPER FAILED → USING FALLBACK")
             raw_props = generate_fallback_props()
+            source = "FALLBACK"
+        else:
+            source = "SPORTSBOOK"
+
+        print(f"📊 SOURCE: {source}")
+        print("==============================\n")
 
         for p in raw_props:
 
             try:
+                print(f"➡️ Processing: {p}")
+
                 result = evaluate_prop_safe(
                     player=p["player"],
                     line=p["line"],
@@ -201,9 +212,15 @@ def build_props():
                 )
 
                 if not result:
+                    print("⚠️ Model returned NONE")
                     continue
 
-                # ---------------- LINE MOVEMENT ----------------
+                print(
+                    f"📊 {result['player']} {result['stat']} | "
+                    f"Edge: {result['edge']} | Prob: {result['probability']}"
+                )
+
+                # movement tracking
                 key = f"{p['player']}-{p['stat']}"
 
                 prev = LAST_LINES.get(key)
@@ -213,11 +230,11 @@ def build_props():
                     movement = p["line"] - prev
 
                 LAST_LINES[key] = p["line"]
-
                 result["movement"] = round(movement, 2)
 
-                # ---------------- FILTER ----------------
                 if is_good_prop_safe(result):
+
+                    print("🔥 GOOD PROP FOUND")
 
                     size = bet_size_safe(result)
                     result["bet_size"] = size
@@ -225,34 +242,22 @@ def build_props():
                     alert_key = f"{key}-{p['line']}"
 
                     if alert_key not in ALERTED:
-
                         ALERTED.add(alert_key)
-
                         log_prop_safe(result)
-
-                        send_alert(f"""
-🚨 PROP ALERT
-
-{result['player']} ({result['stat']})
-Line: {result['line']}
-
-Edge: {result['edge']}
-Prob: {result['probability']}
-Conf: {result.get('confidence', 0)}
-
-Movement: {result['movement']}
-
-BET: {result['bet']}
-Size: ${size}
-""")
+                        send_alert(f"🚨 {result['player']} {result['stat']} EDGE {result['edge']}")
 
                     props_out.append(result)
 
+                else:
+                    print("❌ Not good enough")
+
             except Exception as e:
-                print("❌ PROP INNER ERROR:", e)
+                print("❌ PROP ERROR:", e)
 
     except Exception as e:
         print("❌ PROP ENGINE ERROR:", e)
+
+    print(f"\n✅ FINAL GOOD PROPS: {len(props_out)}\n")
 
     return props_out
 
@@ -294,9 +299,9 @@ def refresh_loop():
 
     while True:
         try:
-            print("🔄 Updating system...")
+            print("\n🔄 SYSTEM UPDATE START\n")
             games_cache = build_games()
-            print("✅ Updated")
+            print("\n✅ SYSTEM UPDATE COMPLETE\n")
         except Exception as e:
             print("❌ LOOP ERROR:", e)
 
@@ -307,22 +312,11 @@ def refresh_loop():
 @app.on_event("startup")
 def startup():
 
-    print("🚀 SYSTEM START")
+    print("🚀 SYSTEM STARTED")
 
     load_q()
 
     threading.Thread(target=refresh_loop, daemon=True).start()
-
-    # 🔥 LIVE ALERT SYSTEM (SAFE)
-    try:
-        if live_alerts and hasattr(live_alerts, "run_live_alerts"):
-            threading.Thread(
-                target=live_alerts.run_live_alerts,
-                daemon=True
-            ).start()
-            print("✅ Live alerts ON")
-    except:
-        print("⚠️ Live alerts skipped")
 
 # ---------------- API ----------------
 
