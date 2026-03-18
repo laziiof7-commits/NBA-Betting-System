@@ -1,9 +1,9 @@
 # --------------------------------------------------
-# 🔥 ELITE PROP MODEL (FINAL + MATCHUP + ML + SAFE)
+# 🔥 ELITE PROP MODEL (FINAL + ROLE + MATCHUP + ML)
 # --------------------------------------------------
 
 # --------------------------------------------------
-# ✅ SAFE IMPORTS (NO SERVER CRASHES)
+# ✅ SAFE IMPORTS (NO CRASHES)
 # --------------------------------------------------
 
 try:
@@ -52,11 +52,16 @@ try:
 except:
     def hit_rate(): return 0.55
 
-# 🔥 NEW MATCHUP MODEL
+# 🔥 NEW MODELS
 try:
     from matchup_model import matchup_boost
 except:
     def matchup_boost(*args, **kwargs): return 0
+
+try:
+    from role_model import role_adjustment
+except:
+    def role_adjustment(*args, **kwargs): return 0
 
 
 # --------------------------------------------------
@@ -80,11 +85,15 @@ def base_model(player, stat, team=None, opponent=None, sentiment=0):
 
     rate = stat_rates.get(stat, 1)
 
+    # -----------------------------
+    # CORE PROJECTION
+    # -----------------------------
     base_val = minutes * usage * rate
 
-    # -----------------------------
-    # 🔥 MATCHUP BOOST (NEW)
-    # -----------------------------
+    # 🔥 ROLE + INJURY BOOST
+    base_val += role_adjustment(player, team)
+
+    # 🔥 MATCHUP BOOST
     if team and opponent:
         base_val += matchup_boost(player, stat, team, opponent)
 
@@ -169,7 +178,7 @@ def project_pra(player, team=None, opponent=None, sentiment=0):
 
 
 # --------------------------------------------------
-# 🎯 PROBABILITY MODEL (SMART + ADAPTIVE)
+# 🎯 PROBABILITY MODEL (ADAPTIVE)
 # --------------------------------------------------
 
 def calculate_probability(edge):
