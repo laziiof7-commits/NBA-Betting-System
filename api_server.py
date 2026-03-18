@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🚀 ELITE API SERVER (FULL DEBUG VERSION)
+# 🚀 ELITE API SERVER (FINAL + STABLE + FIXED)
 # --------------------------------------------------
 
 from fastapi import FastAPI
@@ -23,6 +23,7 @@ alerts = safe_import("alerts")
 prop_model = safe_import("prop_model")
 prop_tracker = safe_import("prop_tracker")
 lineup_model = safe_import("lineup_model")
+prizepicks = safe_import("prizepicks_scraper")
 odds_scraper = safe_import("odds_prop_scraper")
 
 # ---------------- SAFE FUNCTIONS ----------------
@@ -61,12 +62,27 @@ def lineup_adjustment_safe(a, b):
         return lineup_model.lineup_adjustment(a, b)
     return 0
 
-def get_odds_props_safe():
+# ---------------- DATA PIPELINE ----------------
+
+def get_props_safe():
+
+    # 🔥 PRIORITY 1 — PrizePicks
+    if prizepicks and hasattr(prizepicks, "get_prizepicks_props"):
+        props = prizepicks.get_prizepicks_props()
+        if props:
+            print(f"🔥 PrizePicks props: {len(props)}")
+            return props
+
+    # 🔥 PRIORITY 2 — Odds API
     if odds_scraper and hasattr(odds_scraper, "get_odds_props"):
-        return odds_scraper.get_odds_props()
+        props = odds_scraper.get_odds_props()
+        if props:
+            print(f"📊 Odds API props: {len(props)}")
+            return props
+
     return []
 
-# 🔥 HARD BLOCK
+# 🔥 HARD BLOCK (keep)
 os.environ["DISABLE_PLAYER_DATA"] = "1"
 
 # ---------------- INIT ----------------
@@ -135,7 +151,9 @@ def calc_edge(model, market):
 def prob(edge):
     return max(min(0.5 + edge / 25, 0.75), 0.45)
 
-# ---------------- FALLBACK PROPS ----------------
+# --------------------------------------------------
+# 🔥 SMART FALLBACK PROPS (FIX #2)
+# --------------------------------------------------
 
 def generate_fallback_props():
 
@@ -146,118 +164,84 @@ def generate_fallback_props():
         "Nikola Jokic"
     ]
 
-    stats = ["points", "rebounds", "assists"]
+    base_lines = {
+        "LeBron James": {"points": 27, "rebounds": 8, "assists": 7},
+        "Stephen Curry": {"points": 29, "rebounds": 5, "assists": 6},
+        "Luka Doncic": {"points": 32, "rebounds": 9, "assists": 8},
+        "Nikola Jokic": {"points": 26, "rebounds": 11, "assists": 8},
+    }
 
     props = []
 
     for player in players:
-        for stat in stats:
-
-            base_lines = {
-                "points": random.randint(24, 32),
-                "rebounds": random.randint(7, 12),
-                "assists": random.randint(6, 10)
-            }
+        for stat in ["points", "rebounds", "assists"]:
+            base = base_lines[player][stat]
+            line = base + random.randint(-2, 2)
 
             props.append({
                 "player": player,
                 "stat": stat,
-                "line": base_lines[stat]
+                "line": line
             })
 
-    print(f"⚠️ Using fallback props: {len(props)}")
+    print(f"⚠️ Using SMART fallback props: {len(props)}")
 
     return props
 
 # --------------------------------------------------
-# 🔥 DEBUG PROPS ENGINE
+# 🔥 PROPS ENGINE
 # --------------------------------------------------
 
 def build_props():
 
     props_out = []
 
-    try:
-        print("\n==============================")
-        print("📡 FETCHING PROPS")
+    raw_props = get_props_safe()
 
-        raw_props = get_odds_props_safe()
+    if not raw_props or len(raw_props) < 5:
+        print("🚨 Using SMART fallback (no real data)")
+        raw_props = generate_fallback_props()
 
-        if raw_props:
-            print(f"✅ Scraper returned {len(raw_props)} props")
-            print("🔍 Sample:", raw_props[:2])
-        else:
-            print("❌ Scraper returned EMPTY")
+    for p in raw_props:
 
-        # fallback detection
-        if not raw_props or len(raw_props) < 5:
-            print("🚨 SCRAPER FAILED → USING FALLBACK")
-            raw_props = generate_fallback_props()
-            source = "FALLBACK"
-        else:
-            source = "SPORTSBOOK"
+        try:
+            result = evaluate_prop_safe(
+                player=p["player"],
+                line=p["line"],
+                stat=p["stat"]
+            )
 
-        print(f"📊 SOURCE: {source}")
-        print("==============================\n")
+            if not result:
+                continue
 
-        for p in raw_props:
+            # line movement
+            key = f"{p['player']}-{p['stat']}"
+            prev = LAST_LINES.get(key)
+            movement = (p["line"] - prev) if prev else 0
 
-            try:
-                print(f"➡️ Processing: {p}")
+            LAST_LINES[key] = p["line"]
+            result["movement"] = round(movement, 2)
 
-                result = evaluate_prop_safe(
-                    player=p["player"],
-                    line=p["line"],
-                    stat=p["stat"]
-                )
+            print(f"📊 {result['player']} {result['stat']} | Edge: {result['edge']}")
 
-                if not result:
-                    print("⚠️ Model returned NONE")
-                    continue
+            if is_good_prop_safe(result):
 
-                print(
-                    f"📊 {result['player']} {result['stat']} | "
-                    f"Edge: {result['edge']} | Prob: {result['probability']}"
-                )
+                size = bet_size_safe(result)
+                result["bet_size"] = size
 
-                # movement tracking
-                key = f"{p['player']}-{p['stat']}"
+                alert_key = f"{key}-{p['line']}"
 
-                prev = LAST_LINES.get(key)
-                movement = 0
+                if alert_key not in ALERTED:
+                    ALERTED.add(alert_key)
+                    log_prop_safe(result)
+                    send_alert(f"🔥 {result['player']} {result['stat']} EDGE {result['edge']}")
 
-                if prev is not None:
-                    movement = p["line"] - prev
+                props_out.append(result)
 
-                LAST_LINES[key] = p["line"]
-                result["movement"] = round(movement, 2)
+        except Exception as e:
+            print("❌ PROP ERROR:", e)
 
-                if is_good_prop_safe(result):
-
-                    print("🔥 GOOD PROP FOUND")
-
-                    size = bet_size_safe(result)
-                    result["bet_size"] = size
-
-                    alert_key = f"{key}-{p['line']}"
-
-                    if alert_key not in ALERTED:
-                        ALERTED.add(alert_key)
-                        log_prop_safe(result)
-                        send_alert(f"🚨 {result['player']} {result['stat']} EDGE {result['edge']}")
-
-                    props_out.append(result)
-
-                else:
-                    print("❌ Not good enough")
-
-            except Exception as e:
-                print("❌ PROP ERROR:", e)
-
-    except Exception as e:
-        print("❌ PROP ENGINE ERROR:", e)
-
-    print(f"\n✅ FINAL GOOD PROPS: {len(props_out)}\n")
+    print(f"✅ GOOD PROPS: {len(props_out)}")
 
     return props_out
 
@@ -276,7 +260,6 @@ def build_games():
 
             model = predict_total(g)
             market = 226
-
             edge = calc_edge(model, market)
 
             results[date][key] = {
@@ -299,9 +282,8 @@ def refresh_loop():
 
     while True:
         try:
-            print("\n🔄 SYSTEM UPDATE START\n")
+            print("\n🔄 SYSTEM UPDATE\n")
             games_cache = build_games()
-            print("\n✅ SYSTEM UPDATE COMPLETE\n")
         except Exception as e:
             print("❌ LOOP ERROR:", e)
 
