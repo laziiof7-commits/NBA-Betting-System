@@ -1,6 +1,5 @@
-api_server.py
-streamlit_app.py
-bankroll_manager.py
-alerts.py
-clv_tracker.py
-requirements.txt
+fastapi
+uvicorn
+requests
+pandas
+streamlit
