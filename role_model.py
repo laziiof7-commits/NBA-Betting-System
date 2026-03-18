@@ -1,39 +1,65 @@
 # --------------------------------------------------
-# 🔥 PLAYER ROLE + INJURY MODEL
+# 🔥 ELITE ROLE + INJURY MODEL (DYNAMIC + API + SAFE)
 # --------------------------------------------------
 
+import time
+
 # --------------------------------------------------
-# PLAYER ROLES
+# SAFE IMPORT (INJURY API)
+# --------------------------------------------------
+
+try:
+    from injury_api import get_injuries
+except:
+    def get_injuries(): return {}
+
+# --------------------------------------------------
+# PLAYER ROLE TIERS
 # --------------------------------------------------
 
 PLAYER_ROLES = {
-    "LeBron James": "primary",
-    "Stephen Curry": "primary",
-    "Luka Doncic": "primary",
-    "Nikola Jokic": "primary"
+    "LeBron James": "star",
+    "Stephen Curry": "star",
+    "Luka Doncic": "star",
+    "Nikola Jokic": "star"
 }
 
-# fallback role
 DEFAULT_ROLE = "secondary"
 
-# role multipliers
-ROLE_USAGE = {
+# --------------------------------------------------
+# ROLE MULTIPLIERS
+# --------------------------------------------------
+
+ROLE_MULTIPLIER = {
+    "star": 1.25,
     "primary": 1.15,
     "secondary": 1.0,
     "bench": 0.85
 }
 
-
 # --------------------------------------------------
-# INJURY IMPACT (TEAM LEVEL)
+# INJURY CACHE (PREVENT API SPAM)
 # --------------------------------------------------
 
-TEAM_INJURIES = {
-    # "Lakers": ["Anthony Davis"]
-}
+INJURY_CACHE = {}
+LAST_FETCH = 0
+CACHE_TTL = 300  # 5 minutes
 
-# usage boost when teammate out
-INJURY_BOOST = 0.08
+
+def get_cached_injuries():
+
+    global INJURY_CACHE, LAST_FETCH
+
+    now = time.time()
+
+    if now - LAST_FETCH > CACHE_TTL:
+        try:
+            INJURY_CACHE = get_injuries()
+            LAST_FETCH = now
+        except:
+            INJURY_CACHE = {}
+
+    return INJURY_CACHE
 
 
 # --------------------------------------------------
@@ -43,28 +69,61 @@ INJURY_BOOST = 0.08
 def role_boost(player):
 
     role = PLAYER_ROLES.get(player, DEFAULT_ROLE)
+    multiplier = ROLE_MULTIPLIER.get(role, 1.0)
 
-    return ROLE_USAGE.get(role, 1.0)
+    # convert multiplier → additive boost
+    return (multiplier - 1) * 10
 
 
 # --------------------------------------------------
-# INJURY BOOST
+# INJURY IMPACT (SMART)
 # --------------------------------------------------
 
-def injury_boost(player, team):
+def injury_boost(player, team=None):
 
-    if not team:
+    injuries = get_cached_injuries()
+
+    if not injuries:
         return 0
 
-    team_name = team.split()[-1]
+    boost = 0
 
-    injured = TEAM_INJURIES.get(team_name, [])
+    for injured_player, status in injuries.items():
 
-    if not injured:
-        return 0
+        # skip questionable players (low impact)
+        if status and "Out" not in status:
+            continue
 
-    # simple logic: boost if star teammate out
-    return len(injured) * INJURY_BOOST
+        # basic teammate impact (can improve later)
+        if team and injured_player != player:
+
+            # star teammate out → big boost
+            if injured_player in PLAYER_ROLES:
+                boost += 2.5
+            else:
+                boost += 1.0
+
+    return boost
+
+
+# --------------------------------------------------
+# USAGE SPIKE DETECTION (NEW 🔥)
+# --------------------------------------------------
+
+def usage_spike(player, injuries):
+
+    spike = 0
+
+    for injured_player in injuries:
+
+        if injured_player == player:
+            continue
+
+        # if high-usage teammate out → spike
+        if injured_player in PLAYER_ROLES:
+            spike += 0.05
+
+    return spike
 
 
 # --------------------------------------------------
@@ -73,7 +132,23 @@ def injury_boost(player, team):
 
 def role_adjustment(player, team=None):
 
-    role_mult = role_boost(player)
-    injury = injury_boost(player, team)
+    try:
+        # role base
+        role_val = role_boost(player)
 
-    return (role_mult - 1) * 10 + (injury * 10)
+        # injury context
+        injuries = get_cached_injuries()
+
+        injury_val = injury_boost(player, team)
+
+        # usage spike
+        spike = usage_spike(player, injuries)
+
+        # combine
+        total = role_val + injury_val + (spike * 10)
+
+        return round(total, 2)
+
+    except Exception as e:
+        print("❌ ROLE MODEL ERROR:", e)
+        return 0
