@@ -1,9 +1,9 @@
 # --------------------------------------------------
-# 🔥 ELITE PROP MODEL (FINAL + ROLE + MATCHUP + ML)
+# 🔥 ELITE PROP MODEL (FINAL + ALL SYSTEMS INTEGRATED)
 # --------------------------------------------------
 
 # --------------------------------------------------
-# ✅ SAFE IMPORTS (NO CRASHES)
+# ✅ SAFE IMPORTS (NEVER CRASH SERVER)
 # --------------------------------------------------
 
 try:
@@ -52,7 +52,7 @@ try:
 except:
     def hit_rate(): return 0.55
 
-# 🔥 NEW MODELS
+# 🔥 ADVANCED SYSTEMS
 try:
     from matchup_model import matchup_boost
 except:
@@ -62,6 +62,11 @@ try:
     from role_model import role_adjustment
 except:
     def role_adjustment(*args, **kwargs): return 0
+
+try:
+    from line_movement_tracker import get_movement
+except:
+    def get_movement(*args, **kwargs): return 0
 
 
 # --------------------------------------------------
@@ -86,22 +91,19 @@ def base_model(player, stat, team=None, opponent=None, sentiment=0):
     rate = stat_rates.get(stat, 1)
 
     # -----------------------------
-    # CORE PROJECTION
+    # CORE BASE
     # -----------------------------
     base_val = minutes * usage * rate
 
-    # 🔥 ROLE + INJURY BOOST
+    # 🔥 ROLE + INJURY
     base_val += role_adjustment(player, team)
 
-    # 🔥 MATCHUP BOOST
+    # 🔥 MATCHUP + PACE
     if team and opponent:
         base_val += matchup_boost(player, stat, team, opponent)
-
-    # lineup impact
-    if team and opponent:
         base_val += lineup_adjustment(team, opponent) * 0.12
 
-    # sentiment + trend
+    # 🔥 TREND + SENTIMENT
     base_val += sentiment
     base_val += trend * 0.6
 
@@ -149,7 +151,7 @@ def project_stat(player, stat, team=None, opponent=None, sentiment=0):
     real = real_stat(player, stat)
 
     # -----------------------------
-    # ML WEIGHTED BLEND
+    # ML BLEND
     # -----------------------------
     if real is not None:
         projection = (
@@ -178,13 +180,12 @@ def project_pra(player, team=None, opponent=None, sentiment=0):
 
 
 # --------------------------------------------------
-# 🎯 PROBABILITY MODEL (ADAPTIVE)
+# 🎯 PROBABILITY MODEL
 # --------------------------------------------------
 
 def calculate_probability(edge):
 
     base = 0.5 + (edge / 14)
-
     base = max(min(base, 0.82), 0.40)
 
     perf = hit_rate()
@@ -221,6 +222,9 @@ def evaluate_prop(player, line, stat="points", team=None, opponent=None, sentime
 
     try:
 
+        # -----------------------------
+        # PROJECTION
+        # -----------------------------
         if stat == "pra":
             projection = project_pra(player, team, opponent, sentiment)
             model_data = {"base": 0, "trend": 0, "nn": 0}
@@ -229,6 +233,17 @@ def evaluate_prop(player, line, stat="points", team=None, opponent=None, sentime
 
         edge = projection - line
 
+        # 🔥 MARKET SIGNAL (LINE MOVEMENT)
+        movement = get_movement(player, stat)
+
+        if movement > 1:
+            edge += 1.5
+        elif movement < -1:
+            edge -= 1.0
+
+        # -----------------------------
+        # FINAL METRICS
+        # -----------------------------
         probability = calculate_probability(edge)
         score = calculate_score(edge)
         confidence = calculate_confidence(score, probability)
@@ -250,7 +265,10 @@ def evaluate_prop(player, line, stat="points", team=None, opponent=None, sentime
             "real": real_stat(player, stat) or 0,
             "model": model_data.get("base", 0),
             "trend": model_data.get("trend", 0),
-            "nn": model_data.get("nn", 0)
+            "nn": model_data.get("nn", 0),
+
+            # 🔥 MARKET DATA
+            "movement": movement
         }
 
     except Exception as e:
