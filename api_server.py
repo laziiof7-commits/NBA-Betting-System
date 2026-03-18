@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🚀 ELITE API SERVER (FINAL + STABLE + FIXED)
+# 🚀 ELITE API SERVER (FINAL FIXED VERSION)
 # --------------------------------------------------
 
 from fastapi import FastAPI
@@ -10,7 +10,7 @@ import requests
 import os
 import random
 
-# ---------------- SAFE IMPORT SYSTEM ----------------
+# ---------------- SAFE IMPORTS ----------------
 
 def safe_import(module):
     try:
@@ -18,7 +18,6 @@ def safe_import(module):
     except:
         return None
 
-rl_agent = safe_import("rl_agent")
 alerts = safe_import("alerts")
 prop_model = safe_import("prop_model")
 prop_tracker = safe_import("prop_tracker")
@@ -28,15 +27,14 @@ odds_scraper = safe_import("odds_prop_scraper")
 
 # ---------------- SAFE FUNCTIONS ----------------
 
-def load_q():
-    if rl_agent and hasattr(rl_agent, "load_q"):
-        rl_agent.load_q()
-
 def send_alert(msg):
-    if alerts and hasattr(alerts, "send_discord_alert"):
-        alerts.send_discord_alert(msg)
-    else:
-        print(msg)
+    try:
+        if alerts and hasattr(alerts, "send_discord_alert"):
+            alerts.send_discord_alert(msg)
+        else:
+            print(msg)
+    except Exception as e:
+        print("❌ Discord error:", e)
 
 def evaluate_prop_safe(**kwargs):
     if prop_model and hasattr(prop_model, "evaluate_prop"):
@@ -62,27 +60,7 @@ def lineup_adjustment_safe(a, b):
         return lineup_model.lineup_adjustment(a, b)
     return 0
 
-# ---------------- DATA PIPELINE ----------------
-
-def get_props_safe():
-
-    # 🔥 PRIORITY 1 — PrizePicks
-    if prizepicks and hasattr(prizepicks, "get_prizepicks_props"):
-        props = prizepicks.get_prizepicks_props()
-        if props:
-            print(f"🔥 PrizePicks props: {len(props)}")
-            return props
-
-    # 🔥 PRIORITY 2 — Odds API
-    if odds_scraper and hasattr(odds_scraper, "get_odds_props"):
-        props = odds_scraper.get_odds_props()
-        if props:
-            print(f"📊 Odds API props: {len(props)}")
-            return props
-
-    return []
-
-# 🔥 HARD BLOCK (keep)
+# 🔥 HARD BLOCK (KEEP)
 os.environ["DISABLE_PLAYER_DATA"] = "1"
 
 # ---------------- INIT ----------------
@@ -117,10 +95,12 @@ def get_schedule():
         out = {}
 
         for day in data["leagueSchedule"]["gameDates"][:2]:
+
             date = day["gameDate"]
             games = {}
 
             for g in day.get("games", []):
+
                 home = f"{g['homeTeam']['teamCity']} {g['homeTeam']['teamName']}"
                 away = f"{g['awayTeam']['teamCity']} {g['awayTeam']['teamName']}"
 
@@ -152,7 +132,7 @@ def prob(edge):
     return max(min(0.5 + edge / 25, 0.75), 0.45)
 
 # --------------------------------------------------
-# 🔥 SMART FALLBACK PROPS (FIX #2)
+# 🔥 MODEL-BASED FALLBACK (FIXED)
 # --------------------------------------------------
 
 def generate_fallback_props():
@@ -164,19 +144,24 @@ def generate_fallback_props():
         "Nikola Jokic"
     ]
 
-    base_lines = {
-        "LeBron James": {"points": 27, "rebounds": 8, "assists": 7},
-        "Stephen Curry": {"points": 29, "rebounds": 5, "assists": 6},
-        "Luka Doncic": {"points": 32, "rebounds": 9, "assists": 8},
-        "Nikola Jokic": {"points": 26, "rebounds": 11, "assists": 8},
-    }
-
     props = []
 
     for player in players:
         for stat in ["points", "rebounds", "assists"]:
-            base = base_lines[player][stat]
-            line = base + random.randint(-2, 2)
+
+            base = evaluate_prop_safe(
+                player=player,
+                line=0,
+                stat=stat
+            )
+
+            if not base:
+                continue
+
+            projection = base["projection"]
+
+            # 🔥 REALISTIC LINE
+            line = round(projection + random.uniform(-2.5, 2.5), 1)
 
             props.append({
                 "player": player,
@@ -184,22 +169,50 @@ def generate_fallback_props():
                 "line": line
             })
 
-    print(f"⚠️ Using SMART fallback props: {len(props)}")
+    print(f"⚠️ Using MODEL fallback props: {len(props)}")
 
     return props
 
 # --------------------------------------------------
-# 🔥 PROPS ENGINE
+# 🔥 PROP PIPELINE
+# --------------------------------------------------
+
+def get_props():
+
+    # PrizePicks
+    try:
+        if prizepicks:
+            props = prizepicks.get_prizepicks_props()
+            if props:
+                print(f"🔥 PrizePicks props: {len(props)}")
+                return props
+    except Exception as e:
+        print("❌ PrizePicks error:", e)
+
+    # Odds API
+    try:
+        if odds_scraper:
+            props = odds_scraper.get_odds_props()
+            if props:
+                print(f"📊 Odds API props: {len(props)}")
+                return props
+    except Exception as e:
+        print("❌ Odds API error:", e)
+
+    return []
+
+# --------------------------------------------------
+# 🔥 BUILD PROPS
 # --------------------------------------------------
 
 def build_props():
 
     props_out = []
 
-    raw_props = get_props_safe()
+    raw_props = get_props()
 
     if not raw_props or len(raw_props) < 5:
-        print("🚨 Using SMART fallback (no real data)")
+        print("🚨 Using MODEL fallback")
         raw_props = generate_fallback_props()
 
     for p in raw_props:
@@ -214,6 +227,10 @@ def build_props():
             if not result:
                 continue
 
+            # 🔥 REDUCED SPAM LOGGING
+            if abs(result["edge"]) > 1:
+                print(f"📊 {result['player']} {result['stat']} | Edge: {result['edge']}")
+
             # line movement
             key = f"{p['player']}-{p['stat']}"
             prev = LAST_LINES.get(key)
@@ -221,8 +238,6 @@ def build_props():
 
             LAST_LINES[key] = p["line"]
             result["movement"] = round(movement, 2)
-
-            print(f"📊 {result['player']} {result['stat']} | Edge: {result['edge']}")
 
             if is_good_prop_safe(result):
 
@@ -234,7 +249,11 @@ def build_props():
                 if alert_key not in ALERTED:
                     ALERTED.add(alert_key)
                     log_prop_safe(result)
-                    send_alert(f"🔥 {result['player']} {result['stat']} EDGE {result['edge']}")
+
+                    send_alert(
+                        f"🔥 {result['player']} {result['stat']} "
+                        f"{result['bet']} | Edge: {result['edge']} | Size: ${size}"
+                    )
 
                 props_out.append(result)
 
@@ -293,11 +312,7 @@ def refresh_loop():
 
 @app.on_event("startup")
 def startup():
-
     print("🚀 SYSTEM STARTED")
-
-    load_q()
-
     threading.Thread(target=refresh_loop, daemon=True).start()
 
 # ---------------- API ----------------
