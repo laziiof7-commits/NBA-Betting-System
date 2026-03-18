@@ -1,15 +1,16 @@
 # --------------------------------------------------
-# 🚀 ELITE API SERVER (REAL DATA + STABLE)
+# 🚀 ELITE API SERVER (REAL DATA + STABLE + DASHBOARD)
 # --------------------------------------------------
 
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 import threading
 import time
 from datetime import datetime
 import requests
 import os
 
-# ---------------- SAFE IMPORTS ----------------
+# ---------------- SAFE IMPORT SYSTEM ----------------
 
 def safe_import(module):
     try:
@@ -23,7 +24,7 @@ prop_tracker = safe_import("prop_tracker")
 lineup_model = safe_import("lineup_model")
 odds_scraper = safe_import("odds_prop_scraper")
 
-# ---------------- SAFE FUNCTIONS ----------------
+# ---------------- SAFE WRAPPERS ----------------
 
 def send_alert(msg):
     try:
@@ -58,6 +59,16 @@ def lineup_adjustment_safe(a, b):
         return lineup_model.lineup_adjustment(a, b)
     return 0
 
+def get_summary_safe():
+    if prop_tracker and hasattr(prop_tracker, "summary"):
+        return prop_tracker.summary()
+    return {
+        "hit_rate": 0,
+        "recent_hit_rate": 0,
+        "roi": {"roi": 0, "profit": 0},
+        "avg_clv": 0
+    }
+
 # 🔥 HARD BLOCK
 os.environ["DISABLE_PLAYER_DATA"] = "1"
 
@@ -85,7 +96,6 @@ def format_time(utc):
 # ---------------- SCHEDULE ----------------
 
 def get_schedule():
-
     try:
         url = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json"
         res = requests.get(url, timeout=5)
@@ -94,7 +104,6 @@ def get_schedule():
         out = {}
 
         for day in data["leagueSchedule"]["gameDates"][:2]:
-
             date = day["gameDate"]
             games = {}
 
@@ -130,9 +139,7 @@ def calc_edge(model, market):
 def prob(edge):
     return max(min(0.5 + edge / 25, 0.75), 0.45)
 
-# --------------------------------------------------
-# 🔥 REAL PROP FETCH (ODDS API ONLY)
-# --------------------------------------------------
+# ---------------- REAL PROP FETCH ----------------
 
 def get_props():
 
@@ -141,27 +148,25 @@ def get_props():
 
             props = odds_scraper.get_odds_props()
 
-            if props:
+            if props and isinstance(props, list):
                 print(f"📊 REAL ODDS PROPS: {len(props)}")
                 return props
 
     except Exception as e:
         print("❌ Odds API error:", e)
 
+    print("⚠️ No props returned from scraper")
     return []
 
-# --------------------------------------------------
-# 🔥 BUILD PROPS
-# --------------------------------------------------
+# ---------------- BUILD PROPS ----------------
 
 def build_props():
 
     props_out = []
-
     raw_props = get_props()
 
     if not raw_props:
-        print("❌ NO REAL PROPS FOUND")
+        print("🚨 NO REAL PROPS — skipping cycle")
         return []
 
     for p in raw_props:
@@ -176,21 +181,20 @@ def build_props():
             if not result:
                 continue
 
-            # reduce log spam
-            if abs(result["edge"]) > 1.5:
+            # ✅ CLEAN LOGGING
+            if abs(result["edge"]) > 1:
                 print(f"📊 {result['player']} {result['stat']} | Edge: {result['edge']}")
 
             # ---------------- LINE MOVEMENT ----------------
             key = f"{p['player']}-{p['stat']}"
-
             prev = LAST_LINES.get(key)
             movement = (p["line"] - prev) if prev else 0
 
             LAST_LINES[key] = p["line"]
             result["movement"] = round(movement, 2)
 
-            # ---------------- FILTER ----------------
-            if is_good_prop_safe(result):
+            # ---------------- FILTER (FIXED) ----------------
+            if abs(result["edge"]) > 1.5 and result["probability"] > 0.52:
 
                 size = bet_size_safe(result)
                 result["bet_size"] = size
@@ -203,8 +207,8 @@ def build_props():
                     log_prop_safe(result)
 
                     send_alert(
-                        f"🔥 {result['player']} {result['stat']} "
-                        f"{result['bet']} | Edge: {result['edge']} | Size: ${size}"
+                        f"🔥 {result['player']} {result['stat']} {result['bet']} "
+                        f"| Edge: {result['edge']} | Size: ${size}"
                     )
 
                 props_out.append(result)
@@ -213,7 +217,6 @@ def build_props():
             print("❌ PROP ERROR:", e)
 
     print(f"✅ GOOD PROPS: {len(props_out)}")
-
     return props_out
 
 # ---------------- CORE ----------------
@@ -242,9 +245,7 @@ def build_games():
                 "probability": prob(edge)
             }
 
-    # 🔥 REAL PROPS
     results["props"] = build_props()
-
     return results
 
 # ---------------- LOOP ----------------
@@ -281,3 +282,24 @@ def root():
 @app.get("/games")
 def games():
     return games_cache or {"status": "loading"}
+
+# ---------------- DASHBOARD ----------------
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+
+    stats = get_summary_safe()
+
+    return f"""
+    <html>
+    <body style="background:#0f172a;color:white;text-align:center;font-family:Arial;padding:40px;">
+        <h1>🔥 Betting Dashboard</h1>
+
+        <h2>ROI: {stats['roi']['roi']}%</h2>
+        <h2>Profit: ${stats['roi']['profit']}</h2>
+        <h2>Hit Rate: {stats['hit_rate']}</h2>
+        <h2>Recent: {stats['recent_hit_rate']}</h2>
+        <h2>Avg CLV: {stats['avg_clv']}</h2>
+    </body>
+    </html>
+    """
