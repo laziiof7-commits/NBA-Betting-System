@@ -1,12 +1,12 @@
 # --------------------------------------------------
-# 🚀 ELITE API SERVER (STABLE + NO EXTERNAL DATA)
+# 🚀 ELITE API SERVER (FULLY STABLE VERSION)
 # --------------------------------------------------
 
 from fastapi import FastAPI
-import requests
 import threading
 import time
 from datetime import datetime
+import requests
 import os
 
 # ---------------- SAFE IMPORTS ----------------
@@ -38,8 +38,7 @@ try:
 except:
     def log_prop(x): pass
 
-# ⚠️ HARD BLOCK (CRITICAL FIX)
-# Prevent ANY accidental NBA API usage
+# 🔥 HARD BLOCK (kills external NBA calls completely)
 os.environ["DISABLE_PLAYER_DATA"] = "1"
 
 # ---------------- INIT ----------------
@@ -65,7 +64,6 @@ def format_time(utc):
 # ---------------- SAFE SCHEDULE ----------------
 
 def get_schedule():
-
     url = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json"
 
     try:
@@ -151,7 +149,7 @@ def build_props():
 
     props_out = []
 
-    raw_props = generate_fallback_props()  # 🔥 FORCE SAFE MODE
+    raw_props = generate_fallback_props()
 
     for p in raw_props:
 
@@ -190,3 +188,70 @@ def build_props():
 """)
 
             props_out.append(result)
+
+        except Exception as e:
+            print("❌ PROP ERROR:", e)
+
+    return props_out
+
+# ---------------- CORE ----------------
+
+def build_games():
+
+    schedule = get_schedule()
+    results = {}
+
+    for date, games in schedule.items():
+
+        results[date] = {}
+
+        for key, g in games.items():
+
+            model = predict_total(g)
+            market = 226  # safe default
+            edge = calc_edge(model, market)
+            probability = prob(edge)
+
+            results[date][key] = {
+                **g,
+                "market": market,
+                "model": model,
+                "edge": edge,
+                "probability": probability
+            }
+
+    results["props"] = build_props()
+
+    return results
+
+# ---------------- LOOP ----------------
+
+def refresh_loop():
+    global games_cache
+
+    while True:
+        try:
+            print("🔄 Updating...")
+            games_cache = build_games()
+            print("✅ Updated")
+        except Exception as e:
+            print("❌ LOOP ERROR:", e)
+
+        time.sleep(REFRESH_INTERVAL)
+
+# ---------------- STARTUP ----------------
+
+@app.on_event("startup")
+def startup():
+    load_q()
+    threading.Thread(target=refresh_loop, daemon=True).start()
+
+# ---------------- API ----------------
+
+@app.get("/")
+def root():
+    return {"status": "LIVE"}
+
+@app.get("/games")
+def games():
+    return games_cache or {"status": "loading"}
