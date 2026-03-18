@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🔥 ELITE PROP TRACKER (FULL ML + CLV SYSTEM)
+# 🔥 ELITE PROP TRACKER (FINAL + AUTO LEARNING)
 # --------------------------------------------------
 
 import json
@@ -8,6 +8,16 @@ import uuid
 from datetime import datetime
 
 FILE = "prop_history.json"
+
+# --------------------------------------------------
+# SAFE IMPORTS (NO BREAKS)
+# --------------------------------------------------
+
+try:
+    from nn_model import train_nn, save_model
+except:
+    def train_nn(*args): pass
+    def save_model(): pass
 
 
 # --------------------------------------------------
@@ -117,7 +127,7 @@ def update_clv_from_props(current_props):
 
 
 # --------------------------------------------------
-# 🎯 AUTO GRADING
+# 🎯 AUTO GRADING + LEARNING
 # --------------------------------------------------
 
 def grade_props(results):
@@ -149,6 +159,9 @@ def grade_props(results):
 
         p["actual"] = actual
 
+        # -----------------------------
+        # WIN / LOSS
+        # -----------------------------
         if p["bet"] == "OVER":
             win = actual > p["line"]
         else:
@@ -156,12 +169,32 @@ def grade_props(results):
 
         p["result"] = "WIN" if win else "LOSS"
 
+        # -----------------------------
+        # PROFIT
+        # -----------------------------
         stake = p.get("stake", 1)
 
         if win:
             p["profit"] = round(stake * 0.91, 2)
         else:
             p["profit"] = -stake
+
+        # -----------------------------
+        # 🔥 AUTO LEARNING (NN TRAINING)
+        # -----------------------------
+        features = [
+            p.get("real", 0),
+            p.get("model", 0),
+            p.get("trend", 0),
+            p.get("nn", 0)
+        ]
+
+        label = 1 if win else 0
+
+        train_nn(features, label)
+
+    # save NN after batch
+    save_model()
 
     save_history(data)
 
