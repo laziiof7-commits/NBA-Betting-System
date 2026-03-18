@@ -1,55 +1,85 @@
 # --------------------------------------------------
-# 🔥 DRAFTKINGS PROP SCRAPER (REAL DATA)
+# 🔥 DRAFTKINGS SCRAPER (HARDENED + STABLE)
 # --------------------------------------------------
 
 import requests
+import time
+import random
 
-# DraftKings NBA event group (props)
 URL = "https://sportsbook.draftkings.com/sites/US-SB/api/v5/eventgroups/42648?format=json"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0",
-    "Accept": "application/json"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Accept": "application/json",
+    "Referer": "https://sportsbook.draftkings.com/",
+    "Origin": "https://sportsbook.draftkings.com",
+    "Connection": "keep-alive"
 }
 
 # --------------------------------------------------
-# PARSE PROPS
+# SAFE REQUEST
 # --------------------------------------------------
 
-def parse_dk_props(data):
+def fetch_data():
+
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    try:
+        time.sleep(random.uniform(1.5, 3.5))  # 🔥 anti-bot delay
+
+        res = session.get(URL, timeout=10)
+
+        if res.status_code == 403:
+            print("❌ DK BLOCKED (403)")
+            return None
+
+        if res.status_code != 200:
+            print(f"❌ DK ERROR: {res.status_code}")
+            return None
+
+        return res.json()
+
+    except Exception as e:
+        print("❌ DK FETCH ERROR:", e)
+        return None
+
+
+# --------------------------------------------------
+# PARSE
+# --------------------------------------------------
+
+def parse_props(data):
 
     props = []
 
     try:
-        event_group = data.get("eventGroup", {})
-        events = event_group.get("events", [])
-        markets = event_group.get("offerCategories", [])
+        categories = data.get("eventGroup", {}).get("offerCategories", [])
 
-        for category in markets:
+        for cat in categories:
 
-            for subcat in category.get("offerSubcategoryDescriptors", []):
+            for sub in cat.get("offerSubcategoryDescriptors", []):
 
-                name = subcat.get("name", "").lower()
+                name = sub.get("name", "").lower()
 
-                # 🔥 FILTER ONLY KEY STATS
                 if not any(x in name for x in ["points", "rebounds", "assists"]):
                     continue
 
-                stat = None
-                if "points" in name:
-                    stat = "points"
-                elif "rebounds" in name:
-                    stat = "rebounds"
-                elif "assists" in name:
-                    stat = "assists"
+                stat = (
+                    "points" if "points" in name else
+                    "rebounds" if "rebounds" in name else
+                    "assists"
+                )
 
-                for offer in subcat.get("offers", []):
+                for offer in sub.get("offers", []):
 
                     for o in offer:
 
                         try:
-                            player = o["outcomes"][0]["participant"]
-                            line = o["outcomes"][0]["line"]
+                            outcome = o["outcomes"][0]
+
+                            player = outcome.get("participant")
+                            line = outcome.get("line")
 
                             if not player or line is None:
                                 continue
@@ -64,32 +94,24 @@ def parse_dk_props(data):
                             continue
 
     except Exception as e:
-        print("❌ DK PARSE ERROR:", e)
+        print("❌ PARSE ERROR:", e)
 
     return props
 
 
 # --------------------------------------------------
-# MAIN FUNCTION
+# MAIN
 # --------------------------------------------------
 
 def get_dk_props():
 
-    try:
-        res = requests.get(URL, headers=HEADERS, timeout=8)
+    data = fetch_data()
 
-        if res.status_code != 200:
-            print("❌ DK ERROR:", res.status_code)
-            return []
-
-        data = res.json()
-
-        props = parse_dk_props(data)
-
-        print(f"📊 DraftKings props: {len(props)}")
-
-        return props
-
-    except Exception as e:
-        print("❌ DK FETCH ERROR:", e)
+    if not data:
         return []
+
+    props = parse_props(data)
+
+    print(f"📊 DraftKings props: {len(props)}")
+
+    return props
