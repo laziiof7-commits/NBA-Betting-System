@@ -100,7 +100,7 @@ def generate_fallback_props():
 
             if proj is not None:
                 # 🔥 small variance instead of equal line
-                line = round(proj + random.uniform(-3, 3), 1)
+                line = round(proj + random.uniform(-6, 6), 1)
             else:
                 low, high = base_lines[stat]
                 line = round(random.uniform(low, high), 1)
@@ -184,7 +184,7 @@ def build_props():
             # --------------------------------------------------
 
             # instead of killing everything, allow moderate edges
-            if abs(edge) < 1.0:
+            if abs(edge) < 0.5:
                 continue
 
             # ---------------- BET SIZE ----------------
