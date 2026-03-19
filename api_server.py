@@ -91,7 +91,6 @@ players = [
 
 stats = ["points", "rebounds", "assists"]
 
-# 🔥 SAFE DEFAULT LINES
 base_lines = {
 "points": (24, 32),
 "rebounds": (6, 12),
@@ -103,13 +102,11 @@ props = []
 for player in players:
 for stat in stats:
 
-# try model first
 proj = project(player, stat)
 
 if proj is not None:
 line = round(proj - random.uniform(0.5, 3.0), 1)
 else:
-# 🔥 HARD FALLBACK (CRITICAL FIX)
 low, high = base_lines[stat]
 line = round(random.uniform(low, high), 1)
 
