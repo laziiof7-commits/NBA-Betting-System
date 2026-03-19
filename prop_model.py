@@ -94,9 +94,9 @@ if not prop:
 return False
 
 return (
-abs(prop["edge"]) > 1.0
-and prop["probability"] > 0.55
-and prop["confidence"] > 0.20
+abs(prop["edge"]) > 0.9
+and prop["probability"] > 0.53
+and prop["confidence"] > 0.18
 )
 
     if not prop:
