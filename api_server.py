@@ -269,3 +269,5 @@ def root():
 @app.get("/games")
 def games():
     return games_cache or {"status": "loading"}
+
+.
