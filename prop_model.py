@@ -1,8 +1,6 @@
 # --------------------------------------------------
-# 🔥 ELITE PROP MODEL (STABLE + SHARP + HYBRID ML)
+# 🔥 PROP MODEL (CALIBRATED + FIXED)
 # --------------------------------------------------
-
-# ---------------- SAFE IMPORTS ----------------
 
 def safe_import(module, func, default):
     try:
@@ -11,30 +9,97 @@ def safe_import(module, func, default):
     except:
         return default
 
-# real data
-real_points = safe_import("player_data", "project_points", lambda p: None)
-
-# models
-project_minutes = safe_import("minutes_model", "project_minutes", lambda p: 30)
-project_usage = safe_import("usage_model", "project_usage", lambda p: 0.22)
-predict_trend = safe_import("time_series_model", "predict_trend", lambda p: 0)
-predict_nn = safe_import("nn_model", "predict_nn", lambda x: 0)
-get_weights = safe_import("model_optimizer", "get_weights", lambda: {
-    "real": 0.5,
-    "model": 0.3,
-    "trend": 0.1,
-    "nn": 0.1
-})
-
-lineup_adjustment = safe_import("lineup_model", "lineup_adjustment", lambda a, b: 0)
-hit_rate = safe_import("prop_tracker", "hit_rate", lambda: 0.55)
+project_minutes = safe_import("minutes_model", "project_minutes", lambda p: 32)
+project_usage = safe_import("usage_model", "project_usage", lambda p: 0.25)
 
 # --------------------------------------------------
-# 🧠 ROLE + MINUTES BOOST (NEW)
+# BASE MODEL
 # --------------------------------------------------
 
-def role_adjustment(player, minutes, usage):
+def base_projection(player, stat):
 
+    minutes = project_minutes(player)
+    usage = project_usage(player)
+
+    rates = {
+        "points": 1.45,
+        "rebounds": 0.42,
+        "assists": 0.38
+    }
+
+    rate = rates.get(stat, 1)
+
+    return minutes * usage * rate
+
+# --------------------------------------------------
+# MAIN PROJECTION
+# --------------------------------------------------
+
+def project(player, stat):
+
+    base = base_projection(player, stat)
+
+    # 🔥 GLOBAL BOOST (CRITICAL FIX)
+    base *= 1.15
+
+    return round(base, 2)
+
+# --------------------------------------------------
+# EVALUATION
+# --------------------------------------------------
+
+def evaluate_prop(player, line, stat="points", **kwargs):
+
+    try:
+
+        projection = project(player, stat)
+
+        edge = projection - line
+
+        probability = max(min(0.5 + edge / 10, 0.85), 0.45)
+
+        confidence = min((abs(edge) / 10) * probability, 1)
+
+        return {
+            "player": player,
+            "stat": stat,
+            "line": line,
+            "projection": projection,
+            "edge": round(edge, 2),
+            "probability": round(probability, 3),
+            "confidence": round(confidence, 2),
+            "bet": "OVER" if edge > 0 else "UNDER"
+        }
+
+    except Exception as e:
+        print("❌ MODEL ERROR:", e)
+        return None
+
+# --------------------------------------------------
+# FILTER (FIXED)
+# --------------------------------------------------
+
+def is_good_prop(prop):
+
+    if not prop:
+        return False
+
+    return (
+        abs(prop["edge"]) > 2
+        and prop["probability"] > 0.58
+        and prop["confidence"] > 0.25
+    )
+
+# --------------------------------------------------
+# BET SIZE
+# --------------------------------------------------
+
+def prop_bet_size(prop, base_size=10):
+
+    if not prop:
+        return 0
+
+    return round(base_size * (1 + prop["confidence"]), 2)
     # star players = higher stability
     if usage > 0.30:
         return 1.08
