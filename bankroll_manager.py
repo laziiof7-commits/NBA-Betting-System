@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 💰 ELITE BANKROLL MANAGER (QUANT VERSION)
+# 💰 ELITE BANKROLL MANAGER (UPGRADED)
 # --------------------------------------------------
 
 import math
@@ -11,12 +11,14 @@ import math
 DEFAULT_BANKROLL = 1000.0
 DEFAULT_ODDS = 1.91
 
-MAX_BET_FRACTION = 0.03      # tighter cap (3%)
-MAX_SLATE_RISK = 0.10        # max 10% total exposure
+MAX_BET_FRACTION = 0.03
+MAX_SLATE_RISK = 0.10
 
 MIN_EDGE_SCORE = 70
 MIN_PROB = 0.57
 MIN_CLV = 0.0
+
+MIN_BET_SIZE = 5.0  # 🔥 NEW (important)
 
 
 # --------------------------------------------------
@@ -37,29 +39,32 @@ def kelly_fraction(prob, odds=DEFAULT_ODDS):
 
 
 # --------------------------------------------------
-# SAFE KELLY (CORE ENGINE)
+# SAFE KELLY
 # --------------------------------------------------
 
-def safe_kelly(prob, edge_score=None):
+def safe_kelly(prob, edge_score=None, clv=0):
 
     k = kelly_fraction(prob)
 
     if k <= 0:
         return 0.0
 
-    # half Kelly baseline
+    # half Kelly
     k *= 0.5
 
     # edge scaling
     if edge_score:
         k *= min(edge_score / 100, 1)
 
-    # cap risk
+    # 🔥 CLV BOOST (NEW)
+    if clv and clv > 0:
+        k *= (1 + min(clv * 0.25, 0.5))  # capped boost
+
     return min(k, MAX_BET_FRACTION)
 
 
 # --------------------------------------------------
-# VOLATILITY ADJUSTMENT
+# VOLATILITY
 # --------------------------------------------------
 
 def volatility_adjustment(volatility):
@@ -76,7 +81,7 @@ def volatility_adjustment(volatility):
 
 
 # --------------------------------------------------
-# DRAW DOWN CONTROL
+# DRAWDOWN
 # --------------------------------------------------
 
 def drawdown_factor(bankroll, peak):
@@ -97,7 +102,7 @@ def drawdown_factor(bankroll, peak):
 
 
 # --------------------------------------------------
-# HEAT CHECK (STREAK ADJUSTMENT)
+# STREAK
 # --------------------------------------------------
 
 def streak_factor(last_results):
@@ -117,13 +122,14 @@ def streak_factor(last_results):
 
 
 # --------------------------------------------------
-# FINAL BET SIZE ENGINE
+# FINAL BET SIZE
 # --------------------------------------------------
 
 def get_bet_size(
     probability,
     edge_score,
     bankroll,
+    clv=0,  # 🔥 NEW
     volatility=None,
     peak_bankroll=None,
     last_results=None
@@ -132,25 +138,28 @@ def get_bet_size(
     if bankroll <= 0:
         return 0.0
 
-    k = safe_kelly(probability, edge_score)
+    k = safe_kelly(probability, edge_score, clv)
 
-    # apply adjustments
     k *= volatility_adjustment(volatility)
     k *= drawdown_factor(bankroll, peak_bankroll or bankroll)
     k *= streak_factor(last_results or [])
 
     stake = bankroll * k
 
-    return round(max(stake, 0), 2)
+    # 🔥 MIN BET FILTER
+    if stake < MIN_BET_SIZE:
+        return 0.0
+
+    return round(stake, 2)
 
 
 # --------------------------------------------------
-# PORTFOLIO CONTROL (VERY IMPORTANT)
+# PORTFOLIO CONTROL
 # --------------------------------------------------
 
 def cap_slates(bets, bankroll):
 
-    total = sum(b["bet_size"] for b in bets)
+    total = sum(b.get("bet_size", 0) for b in bets)
 
     max_allowed = bankroll * MAX_SLATE_RISK
 
@@ -166,7 +175,7 @@ def cap_slates(bets, bankroll):
 
 
 # --------------------------------------------------
-# CORRELATION FILTER (LEAK FIX)
+# CORRELATION FILTER (SAFE FIX)
 # --------------------------------------------------
 
 def correlation_filter(bets):
@@ -176,7 +185,13 @@ def correlation_filter(bets):
 
     for b in bets:
 
-        team = b["game"].split("@")[0]
+        game = b.get("game")
+
+        if not game or "@" not in game:
+            filtered.append(b)
+            continue
+
+        team = game.split("@")[0]
 
         if team in seen:
             continue
@@ -188,7 +203,7 @@ def correlation_filter(bets):
 
 
 # --------------------------------------------------
-# BET FILTER (ELITE GATE)
+# BET FILTER
 # --------------------------------------------------
 
 def should_bet(edge_score, probability, clv):
@@ -209,20 +224,7 @@ def should_bet(edge_score, probability, clv):
 
 
 # --------------------------------------------------
-# ELITE MODE (TOP 10% ONLY)
-# --------------------------------------------------
-
-def elite_only(edge_score, probability, clv):
-
-    return should_bet(
-        edge_score=edge_score,
-        probability=probability,
-        clv=clv
-    ) and edge_score > 80 and probability > 0.60
-
-
-# --------------------------------------------------
-# PROFIT CALC
+# PROFIT
 # --------------------------------------------------
 
 def calculate_profit(stake, result, odds=-110):
@@ -237,7 +239,7 @@ def calculate_profit(stake, result, odds=-110):
 
 
 # --------------------------------------------------
-# BANKROLL UPDATE
+# UPDATE BANKROLL
 # --------------------------------------------------
 
 def update_bankroll(bankroll, profit):
