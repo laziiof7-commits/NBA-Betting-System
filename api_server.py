@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🚀 API SERVER (PRO MODE - REAL FIX)
+# 🚀 API SERVER (PRO MODE - STABLE + FIXED)
 # --------------------------------------------------
 
 from fastapi import FastAPI
@@ -68,7 +68,7 @@ games_cache = {}
 ALERTED = set()
 
 # --------------------------------------------------
-# 🔥 FALLBACK (SAFE)
+# 🔥 FALLBACK (FIXED + STRONG EDGES)
 # --------------------------------------------------
 
 def generate_fallback_props():
@@ -99,14 +99,14 @@ def generate_fallback_props():
                 proj = None
 
             if proj is not None:
-                # 🔥 small variance instead of equal line
-                # 🔥 FORCE EDGE CREATION
-shift = random.uniform(2.5, 6.5)
+                # 🔥 FIXED EDGE GENERATION
+                shift = random.uniform(2.0, 5.0)
 
-if random.random() > 0.5:
-line = round(proj - shift, 1) # favors OVER
-else:
-line = round(proj + shift, 1) # favors UNDER
+                if random.random() > 0.5:
+                    line = round(proj - shift, 1)  # OVER edge
+                else:
+                    line = round(proj + shift, 1)  # UNDER edge
+
             else:
                 low, high = base_lines[stat]
                 line = round(random.uniform(low, high), 1)
@@ -122,7 +122,7 @@ line = round(proj + shift, 1) # favors UNDER
     return props
 
 # --------------------------------------------------
-# 🔥 PROPS ENGINE (REAL FIX)
+# 🔥 PROPS ENGINE (FIXED FILTER + STABLE FLOW)
 # --------------------------------------------------
 
 def build_props():
@@ -144,7 +144,8 @@ def build_props():
     try:
         grouped = group_props(raw_props)
         best_lines = get_best_lines(grouped)
-    except:
+    except Exception as e:
+        print("⚠️ GROUP ERROR:", e)
         best_lines = raw_props
 
     props_out = []
@@ -170,12 +171,12 @@ def build_props():
 
             edge = result.get("edge", 0)
 
-            # 🔥 FIX: dynamic probability if missing
+            # 🔥 probability fallback
             prob = result.get("probability")
             if prob is None:
                 prob = 0.5 + (edge / 20)
 
-            # 🔥 CLV
+            # 🔥 CLV tracking
             clv = track_clv(player, stat, line)
 
             print(
@@ -186,11 +187,9 @@ def build_props():
             )
 
             # --------------------------------------------------
-            # 🔥 REAL FIX: RELAXED FILTER
+            # 🔥 FIX: RELAX FILTER (prevents 0 props loop)
             # --------------------------------------------------
-
-            # instead of killing everything, allow moderate edges
-            if abs(edge) < 0.25:
+            if abs(edge) < 0.15:
                 continue
 
             # ---------------- BET SIZE ----------------
@@ -255,7 +254,7 @@ def refresh_loop():
 
 @app.on_event("startup")
 def startup():
-    print("🚀 SYSTEM STARTED (PRO MODE - REAL FIX)")
+    print("🚀 SYSTEM STARTED (PRO MODE - FIXED)")
     threading.Thread(target=refresh_loop, daemon=True).start()
 
 # --------------------------------------------------
@@ -269,5 +268,3 @@ def root():
 @app.get("/games")
 def games():
     return games_cache or {"status": "loading"}
-
-.
