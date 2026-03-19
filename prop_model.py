@@ -17,9 +17,9 @@ project_usage = safe_import("usage_model", "project_usage", lambda p: 0.25)
 # --------------------------------------------------
 
 BASELINES = {
-    "points": 26,
-    "rebounds": 8,
-    "assists": 6
+"points": 30, # 🔥 was too low
+"rebounds": 9,
+"assists": 7
 }
 
 # --------------------------------------------------
