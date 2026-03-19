@@ -1,10 +1,12 @@
 # --------------------------------------------------
-# 🔥 ELITE DISCORD ALERT SYSTEM (STABLE + FIXED)
+# 🔥 ELITE ALERT SYSTEM (RATE-LIMIT SAFE + QUEUE)
 # --------------------------------------------------
 
 import os
 import requests
 import time
+import threading
+from collections import deque
 
 # --------------------------------------------------
 # CONFIG
@@ -13,11 +15,23 @@ import time
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 
 ENABLE_ALERTS = True
+
 MAX_RETRIES = 3
-RETRY_DELAY = 2  # seconds
+RETRY_DELAY = 2
+
+# ⛔ GLOBAL RATE LIMIT PROTECTION
+ALERT_COOLDOWN = 1.5  # seconds between messages
 
 # --------------------------------------------------
-# CORE REQUEST FUNCTION (ULTRA SAFE)
+# STATE
+# --------------------------------------------------
+
+LAST_ALERT_TIME = 0
+ALERT_QUEUE = deque()
+QUEUE_RUNNING = False
+
+# --------------------------------------------------
+# CORE POST FUNCTION
 # --------------------------------------------------
 
 def _post(payload):
@@ -32,34 +46,25 @@ def _post(payload):
     for attempt in range(MAX_RETRIES):
 
         try:
-            res = requests.post(
-                DISCORD_WEBHOOK,
-                json=payload,
-                timeout=10
-            )
+            res = requests.post(DISCORD_WEBHOOK, json=payload, timeout=10)
 
             # ✅ SUCCESS
             if res.status_code in (200, 204):
                 return True
 
-            # 🔁 RATE LIMIT HANDLING
+            # ⏳ RATE LIMITED
             if res.status_code == 429:
                 try:
-                    retry_after = res.json().get("retry_after", RETRY_DELAY)
+                    retry_after = res.json().get("retry_after", 2)
                 except:
-                    retry_after = RETRY_DELAY
+                    retry_after = 2
 
                 print(f"⏳ Discord rate limited, retrying in {retry_after}s")
                 time.sleep(retry_after)
                 continue
 
-            # ❌ OTHER ERRORS
-            try:
-                error_text = res.json()
-            except:
-                error_text = res.text
-
-            print(f"❌ Discord error {res.status_code}: {error_text}")
+            # ❌ OTHER ERROR
+            print(f"❌ Discord status error: {res.status_code} {res.text}")
 
         except Exception as e:
             print(f"❌ Discord request failed: {e}")
@@ -69,77 +74,98 @@ def _post(payload):
     return False
 
 # --------------------------------------------------
-# BASIC MESSAGE ALERT
+# QUEUE WORKER (ANTI-SPAM SYSTEM)
+# --------------------------------------------------
+
+def _queue_worker():
+
+    global LAST_ALERT_TIME, QUEUE_RUNNING
+
+    while ALERT_QUEUE:
+
+        payload = ALERT_QUEUE.popleft()
+
+        now = time.time()
+
+        # ⛔ COOLDOWN ENFORCED
+        if now - LAST_ALERT_TIME < ALERT_COOLDOWN:
+            sleep_time = ALERT_COOLDOWN - (now - LAST_ALERT_TIME)
+            time.sleep(sleep_time)
+
+        success = _post(payload)
+
+        if success:
+            LAST_ALERT_TIME = time.time()
+
+    QUEUE_RUNNING = False
+
+# --------------------------------------------------
+# SEND ALERT (SAFE ENTRY POINT)
 # --------------------------------------------------
 
 def send_discord_alert(message):
 
-    if not message:
-        return False
+    global QUEUE_RUNNING
 
-    payload = {
-        "content": str(message)[:1900]  # Discord limit safety
-    }
+    payload = {"content": str(message)}
 
-    return _post(payload)
+    ALERT_QUEUE.append(payload)
+
+    # 🔁 START WORKER IF NOT RUNNING
+    if not QUEUE_RUNNING:
+        QUEUE_RUNNING = True
+        threading.Thread(target=_queue_worker, daemon=True).start()
+
+    return True
 
 # --------------------------------------------------
-# 🔥 PROP ALERT (UPGRADED FORMAT)
+# STRUCTURED ALERTS
 # --------------------------------------------------
 
-def send_prop_alert(prop):
+def send_bet_alert(game, edge, prob, market, model, bet_size=None):
 
-    if not prop:
-        return False
+    msg = f"""
+🔥 **AUTO BET DETECTED**
 
-    try:
-        msg = f"""
-🔥 **PROP BET**
+🏀 {game}
 
-👤 **{prop.get('player')}**
-📊 {prop.get('stat').upper()}
-
-📉 Line: {prop.get('line')}
-🧠 Projection: {prop.get('projection')}
-
-📈 Edge: **{prop.get('edge')}**
-🎯 Prob: **{prop.get('probability')}**
-
-💰 Bet: **{prop.get('bet')}**
-💵 Size: **${prop.get('bet_size', 0)}**
+📊 Edge: **{edge}**
+🎯 Prob: **{prob}**
+📉 Market: **{market}**
+🧠 Model: **{model}**
 """
 
-        return send_discord_alert(msg)
+    if bet_size is not None:
+        msg += f"\n💰 Bet Size: **${bet_size}**"
 
-    except Exception as e:
-        print("❌ PROP ALERT ERROR:", e)
-        return False
+    return send_discord_alert(msg)
 
 # --------------------------------------------------
-# EMBED ALERT (CLEAN UI)
+# EMBED ALERTS (CLEAN UI)
 # --------------------------------------------------
 
 def send_embed_alert(title, fields):
 
-    try:
-        embed = {
-            "title": str(title),
-            "color": 0x00FF99,
-            "fields": [
-                {
-                    "name": str(k),
-                    "value": str(v),
-                    "inline": True
-                }
-                for k, v in fields.items()
-            ]
-        }
+    embed = {
+        "title": title,
+        "color": 0x00FF99,
+        "fields": [
+            {"name": str(k), "value": str(v), "inline": True}
+            for k, v in fields.items()
+        ],
+    }
 
-        return _post({"embeds": [embed]})
+    payload = {"embeds": [embed]}
 
-    except Exception as e:
-        print("❌ EMBED ERROR:", e)
-        return False
+    ALERT_QUEUE.append(payload)
+
+    global QUEUE_RUNNING
+
+    if not QUEUE_RUNNING:
+        QUEUE_RUNNING = True
+        threading.Thread(target=_queue_worker, daemon=True).start()
+
+    return True
 
 # --------------------------------------------------
 # ERROR ALERT
@@ -151,9 +177,17 @@ def send_error_alert(error_msg):
     return send_discord_alert(msg)
 
 # --------------------------------------------------
-# TEST ALERT (USE THIS TO VERIFY)
+# EDGE ALERT
 # --------------------------------------------------
 
-def test_alert():
+def send_edge_alert(player, stat, edge):
 
-    return send_discord_alert("🚀 SYSTEM TEST ALERT SUCCESS")
+    msg = f"""
+⚡ **HIGH EDGE PROP**
+
+👤 {player}
+📊 {stat}
+💰 Edge: **{edge}**
+"""
+
+    return send_discord_alert(msg)
