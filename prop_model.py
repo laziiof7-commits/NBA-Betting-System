@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🔥 PROP MODEL (STABLE + NO WEIGHTS BUG)
+# 🔥 PROP MODEL (REALISTIC + FIXED)
 # --------------------------------------------------
 
 def safe_import(module, func, default):
@@ -9,12 +9,11 @@ def safe_import(module, func, default):
     except:
         return default
 
-# SAFE IMPORTS
 project_minutes = safe_import("minutes_model", "project_minutes", lambda p: 34)
 project_usage = safe_import("usage_model", "project_usage", lambda p: 0.25)
 
 # --------------------------------------------------
-# BASELINES (REAL NBA AVERAGES)
+# BASELINES
 # --------------------------------------------------
 
 BASELINES = {
@@ -24,10 +23,10 @@ BASELINES = {
 }
 
 # --------------------------------------------------
-# PLAYER ADJUSTMENT
+# ADJUSTMENT
 # --------------------------------------------------
 
-def player_adjustment(player, minutes, usage):
+def adjust(player, minutes, usage):
 
     min_factor = minutes / 34
     usage_factor = usage / 0.25
@@ -48,9 +47,7 @@ def project(player, stat):
 
     base = BASELINES.get(stat, 10)
 
-    adj = player_adjustment(player, minutes, usage)
-
-    projection = base * adj
+    projection = base * adjust(player, minutes, usage)
 
     return round(projection, 2)
 
@@ -67,7 +64,6 @@ def evaluate_prop(player, line, stat="points", **kwargs):
         edge = projection - line
 
         probability = max(min(0.5 + edge / 12, 0.85), 0.45)
-
         confidence = min((abs(edge) / 8) * probability, 1)
 
         return {
@@ -82,11 +78,11 @@ def evaluate_prop(player, line, stat="points", **kwargs):
         }
 
     except Exception as e:
-        print("❌ PROP MODEL ERROR:", e)
+        print("❌ MODEL ERROR:", e)
         return None
 
 # --------------------------------------------------
-# FILTER
+# FILTER (FIXED)
 # --------------------------------------------------
 
 def is_good_prop(prop):
@@ -95,7 +91,7 @@ def is_good_prop(prop):
         return False
 
     return (
-        abs(prop["edge"]) > 2
+        1.5 < abs(prop["edge"]) < 5
         and prop["probability"] > 0.58
         and prop["confidence"] > 0.30
     )
