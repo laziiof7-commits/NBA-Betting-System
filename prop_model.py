@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🔥 PROP MODEL (FINAL WORKING VERSION)
+# 🔥 PROP MODEL (FIXED + STABLE)
 # --------------------------------------------------
 
 def safe_import(module, func, default):
@@ -13,13 +13,13 @@ project_minutes = safe_import("minutes_model", "project_minutes", lambda p: 34)
 project_usage = safe_import("usage_model", "project_usage", lambda p: 0.25)
 
 # --------------------------------------------------
-# BASELINES
+# BASELINES (MORE REALISTIC)
 # --------------------------------------------------
 
 BASELINES = {
-"points": 30, # 🔥 was too low
-"rebounds": 9,
-"assists": 7
+    "points": 26,
+    "rebounds": 8,
+    "assists": 6
 }
 
 # --------------------------------------------------
@@ -32,7 +32,7 @@ def adjust(player, minutes, usage):
     usage_factor = usage / 0.25
 
     if usage > 0.30:
-        usage_factor *= 1.08
+        usage_factor *= 1.10
 
     return min_factor * usage_factor
 
@@ -49,8 +49,8 @@ def project(player, stat):
 
     projection = base * adjust(player, minutes, usage)
 
-    # final calibration
-    projection *= 0.76
+    # 🔥 LESS COMPRESSION (CRITICAL FIX)
+    projection *= 0.92
 
     return round(projection, 2)
 
@@ -64,10 +64,10 @@ def evaluate_prop(player, line, stat="points", **kwargs):
         projection = project(player, stat)
         edge = projection - line
 
-        # 🔥 FINAL PROBABILITY FIX
-        probability = max(min(0.5 + edge / 9, 0.85), 0.45)
+        # 🔥 STRONGER PROBABILITY SPREAD
+        probability = max(min(0.5 + edge / 7, 0.90), 0.40)
 
-        confidence = min((abs(edge) / 8) * probability, 1)
+        confidence = min((abs(edge) / 6) * probability, 1)
 
         return {
             "player": player,
@@ -77,6 +77,7 @@ def evaluate_prop(player, line, stat="points", **kwargs):
             "edge": round(edge, 2),
             "probability": round(probability, 3),
             "confidence": round(confidence, 2),
+            "score": round(abs(edge) * 10, 2),  # 🔥 IMPORTANT
             "bet": "OVER" if edge > 0 else "UNDER"
         }
 
@@ -85,27 +86,18 @@ def evaluate_prop(player, line, stat="points", **kwargs):
         return None
 
 # --------------------------------------------------
-# FILTER
+# FILTER (CLEAN + SINGLE LOGIC)
 # --------------------------------------------------
 
 def is_good_prop(prop):
-
-if not prop:
-return False
-
-return (
-abs(prop["edge"]) > 0.9
-and prop["probability"] > 0.53
-and prop["confidence"] > 0.18
-)
 
     if not prop:
         return False
 
     return (
-        1.2 < abs(prop["edge"]) < 4
-        and prop["probability"] > 0.58
-        and prop["confidence"] > 0.30
+        abs(prop["edge"]) > 0.6
+        and prop["probability"] > 0.52
+        and prop["confidence"] > 0.15
     )
 
 # --------------------------------------------------
