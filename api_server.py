@@ -254,7 +254,7 @@ def build_props():
                 f"| GAP:+{gap_boost} | M:{movement} V:{velocity} CLV:{clv}"
             )
 
-            if abs(boosted) < 0.2 or prob < 0.5:
+            if abs(boosted) < 0.4 or prob < 0.52:
                 continue
 
             size = get_bet_size(
