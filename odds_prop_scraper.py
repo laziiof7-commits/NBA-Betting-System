@@ -1,34 +1,76 @@
 # --------------------------------------------------
-# 📊 ODDS SCRAPER (PLAYER + GAME)
+# 📊 ODDS SCRAPER (REAL API + MULTI-BOOK)
 # --------------------------------------------------
 
-from prizepicks_scraper import get_prizepicks_props
+import requests
+import os
+
+API_KEY = os.getenv("ODDS_API_KEY")
+
+SPORT = "basketball_nba"
+
+BOOKS = ["draftkings", "fanduel"]
 
 def get_odds_props():
 
+    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds/"
+
+    params = {
+        "apiKey": API_KEY,
+        "regions": "us",
+        "markets": "spreads,totals",
+        "oddsFormat": "american"
+    }
+
+    try:
+        res = requests.get(url, params=params, timeout=10)
+        data = res.json()
+    except Exception as e:
+        print("❌ Odds API error:", e)
+        return []
+
     props = []
 
-    # PLAYER PROPS
-    try:
-        pp = get_prizepicks_props()
+    for game in data:
 
-        for p in pp:
-            props.append({
-                "player": p["player"],
-                "stat": p["stat"],
-                "line": p["line"]
-            })
+        home = game.get("home_team")
+        away = game.get("away_team")
 
-    except Exception as e:
-        print("❌ PP ERROR:", e)
+        game_name = f"{away} @ {home}"
 
-    # GAME PROPS (TEMP)
-    game_lines = [
-        {"game": "Lakers @ Heat", "stat": "total", "line": 228.5},
-        {"game": "Lakers @ Heat", "stat": "spread", "line": -4.5},
-        {"game": "Bucks @ Jazz", "stat": "total", "line": 221.5},
-    ]
+        for book in game.get("bookmakers", []):
 
-    props.extend(game_lines)
+            if book["key"] not in BOOKS:
+                continue
+
+            for market in book.get("markets", []):
+
+                # ---------------- SPREAD ----------------
+                if market["key"] == "spreads":
+
+                    for outcome in market["outcomes"]:
+
+                        props.append({
+                            "game": game_name,
+                            "stat": "spread",
+                            "team": outcome["name"],
+                            "line": outcome["point"],
+                            "book": book["key"]
+                        })
+
+                # ---------------- TOTAL ----------------
+                if market["key"] == "totals":
+
+                    for outcome in market["outcomes"]:
+
+                        props.append({
+                            "game": game_name,
+                            "stat": "total",
+                            "side": outcome["name"],
+                            "line": outcome["point"],
+                            "book": book["key"]
+                        })
+
+    print(f"📊 Odds API games: {len(data)}")
 
     return props
