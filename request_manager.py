@@ -1,76 +1,71 @@
 # --------------------------------------------------
-# 🔥 REQUEST MANAGER (ANTI-BOT ENGINE)
+# 🔥 DRAFTKINGS SCRAPER (STEALTH MODE)
 # --------------------------------------------------
 
-import requests
-import random
-import time
+from request_manager import safe_get
 
-# 🔁 Rotate user agents
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X)",
-    "Mozilla/5.0 (Linux; Android 11)"
-]
-
-# 🔌 Add proxies later here
-PROXIES = [
-    None,  # start without proxy
-    # "http://user:pass@ip:port"
-]
+URL = "https://sportsbook.draftkings.com/sites/US-SB/api/v5/eventgroups/42648?format=json"
 
 # --------------------------------------------------
-# CREATE SESSION
+# PARSE
 # --------------------------------------------------
 
-def create_session():
+def parse_props(data):
 
-    session = requests.Session()
-
-    headers = {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "application/json",
-        "Referer": "https://sportsbook.draftkings.com/",
-        "Origin": "https://sportsbook.draftkings.com",
-        "Connection": "keep-alive"
-    }
-
-    session.headers.update(headers)
-
-    proxy = random.choice(PROXIES)
-
-    if proxy:
-        session.proxies = {
-            "http": proxy,
-            "https": proxy
-        }
-
-    return session
-
-# --------------------------------------------------
-# SAFE REQUEST
-# --------------------------------------------------
-
-def safe_get(url):
-
-    session = create_session()
+    props = []
 
     try:
-        time.sleep(random.uniform(2, 5))  # 🔥 human delay
+        categories = data.get("eventGroup", {}).get("offerCategories", [])
 
-        res = session.get(url, timeout=10)
+        for cat in categories:
 
-        if res.status_code == 403:
-            print("❌ BLOCKED (403)")
-            return None
+            for sub in cat.get("offerSubcategoryDescriptors", []):
 
-        if res.status_code != 200:
-            print(f"❌ ERROR: {res.status_code}")
-            return None
+                name = sub.get("name", "").lower()
 
-        return res.json()
+                if not any(x in name for x in ["points", "rebounds", "assists"]):
+                    continue
+
+                stat = (
+                    "points" if "points" in name else
+                    "rebounds" if "rebounds" in name else
+                    "assists"
+                )
+
+                for offer in sub.get("offers", []):
+
+                    for o in offer:
+
+                        try:
+                            outcome = o["outcomes"][0]
+
+                            props.append({
+                                "player": outcome["participant"],
+                                "stat": stat,
+                                "line": float(outcome["line"])
+                            })
+
+                        except:
+                            continue
 
     except Exception as e:
-        print("❌ REQUEST ERROR:", e)
-        return None
+        print("❌ PARSE ERROR:", e)
+
+    return props
+
+# --------------------------------------------------
+# MAIN
+# --------------------------------------------------
+
+def get_dk_props():
+
+    data = safe_get(URL)
+
+    if not data:
+        return []
+
+    props = parse_props(data)
+
+    print(f"📊 DK PROPS: {len(props)}")
+
+    return props
