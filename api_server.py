@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🚀 API SERVER (PRO MODE - FIXED FILTER + SCORE)
+# 🚀 API SERVER (PRO MODE - REAL FIX)
 # --------------------------------------------------
 
 from fastapi import FastAPI
@@ -68,7 +68,7 @@ games_cache = {}
 ALERTED = set()
 
 # --------------------------------------------------
-# 🔥 FALLBACK (ALWAYS RETURNS DATA)
+# 🔥 FALLBACK (SAFE)
 # --------------------------------------------------
 
 def generate_fallback_props():
@@ -99,7 +99,8 @@ def generate_fallback_props():
                 proj = None
 
             if proj is not None:
-                line = round(proj - random.uniform(0.5, 3.0), 1)
+                # 🔥 small variance instead of equal line
+                line = round(proj + random.uniform(-3, 3), 1)
             else:
                 low, high = base_lines[stat]
                 line = round(random.uniform(low, high), 1)
@@ -111,11 +112,11 @@ def generate_fallback_props():
                 "book": "fallback"
             })
 
-    print(f"⚠️ MODEL-BASED FALLBACK: {len(props)} props")
+    print(f"⚠️ FALLBACK: {len(props)} props")
     return props
 
 # --------------------------------------------------
-# 🔥 PROPS ENGINE (FIXED CORE)
+# 🔥 PROPS ENGINE (REAL FIX)
 # --------------------------------------------------
 
 def build_props():
@@ -152,7 +153,6 @@ def build_props():
             if not player or not stat or line is None:
                 continue
 
-            # ---------------- MODEL ----------------
             result = evaluate_prop(
                 player=player,
                 line=line,
@@ -162,34 +162,35 @@ def build_props():
             if not result:
                 continue
 
-            # 🔥 FIX 1 — ENSURE SCORE EXISTS
-            if "score" not in result:
-                result["score"] = abs(result.get("edge", 0)) * 10
+            edge = result.get("edge", 0)
 
-            # 🔥 FIX 2 — ENSURE PROB EXISTS
-            if not result.get("probability"):
-                result["probability"] = 0.5 + (result["score"] / 100)
+            # 🔥 FIX: dynamic probability if missing
+            prob = result.get("probability")
+            if prob is None:
+                prob = 0.5 + (edge / 20)
 
             # 🔥 CLV
             clv = track_clv(player, stat, line)
-            result["clv"] = clv
 
             print(
                 f"📊 {player} {stat} | "
-                f"Edge: {result.get('edge')} | "
-                f"Score: {result['score']} | "
-                f"Prob: {round(result['probability'], 3)} | "
+                f"Edge: {round(edge,2)} | "
+                f"Prob: {round(prob,3)} | "
                 f"CLV: {clv}"
             )
 
-            # 🔥 FIX 3 — SOFT FILTER (KEY FIX)
-            if result["score"] < 15 and result["probability"] < 0.52:
+            # --------------------------------------------------
+            # 🔥 REAL FIX: RELAXED FILTER
+            # --------------------------------------------------
+
+            # instead of killing everything, allow moderate edges
+            if abs(edge) < 1.0:
                 continue
 
-            # 🔥 BET SIZE
+            # ---------------- BET SIZE ----------------
             size = get_bet_size(
-                probability=result["probability"],
-                edge_score=result["score"],
+                probability=prob,
+                edge_score=abs(edge) * 10,
                 bankroll=1000,
                 clv=clv
             )
@@ -198,6 +199,8 @@ def build_props():
                 continue
 
             result["bet_size"] = size
+            result["clv"] = clv
+            result["probability"] = prob
 
             key = f"{player}-{stat}-{line}"
 
@@ -246,7 +249,7 @@ def refresh_loop():
 
 @app.on_event("startup")
 def startup():
-    print("🚀 SYSTEM STARTED (PRO MODE - FIXED FILTER)")
+    print("🚀 SYSTEM STARTED (PRO MODE - REAL FIX)")
     threading.Thread(target=refresh_loop, daemon=True).start()
 
 # --------------------------------------------------
