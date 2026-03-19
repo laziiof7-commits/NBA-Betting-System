@@ -1,6 +1,8 @@
+import requests
 import random
 import time
-import requests
+
+PROXY = "http://smart-myproxyuser:AwilJama25@proxy.smartproxy.net:3120"
 
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
@@ -8,19 +10,17 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64)"
 ]
 
-PROXY = "http://smart-myproxyuser:AwilJama25@proxy.smartproxy.net:3120"
-
-def stealth_get(url):
+def safe_get(url):
 
     headers = {
         "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "application/json, text/plain, */*",
-        "Connection": "keep-alive",
-        "Accept-Language": "en-US,en;q=0.9"
+        "Accept": "application/json",
+        "Referer": "https://sportsbook.draftkings.com/",
+        "Origin": "https://sportsbook.draftkings.com"
     }
 
     try:
-        time.sleep(random.uniform(1.2, 3.5))  # human delay
+        time.sleep(random.uniform(1.5, 4))  # human delay
 
         res = requests.get(
             url,
@@ -33,11 +33,11 @@ def stealth_get(url):
             return res.json()
 
         if res.status_code in (403, 429):
-            print("⚠️ BLOCKED → retrying slower...")
+            print("⚠️ BLOCKED → slowing down")
             time.sleep(5)
             return None
 
-        print(f"❌ Status: {res.status_code}")
+        print("❌ Status:", res.status_code)
         return None
 
     except Exception as e:
