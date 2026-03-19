@@ -100,7 +100,13 @@ def generate_fallback_props():
 
             if proj is not None:
                 # 🔥 small variance instead of equal line
-                line = round(proj + random.uniform(-6, 6), 1)
+                # 🔥 FORCE EDGE CREATION
+shift = random.uniform(2.5, 6.5)
+
+if random.random() > 0.5:
+line = round(proj - shift, 1) # favors OVER
+else:
+line = round(proj + shift, 1) # favors UNDER
             else:
                 low, high = base_lines[stat]
                 line = round(random.uniform(low, high), 1)
