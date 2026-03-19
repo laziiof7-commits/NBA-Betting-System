@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🔥 PROP MODEL (FINAL BALANCED VERSION)
+# 🔥 PROP MODEL (FINAL WORKING VERSION)
 # --------------------------------------------------
 
 def safe_import(module, func, default):
@@ -37,7 +37,7 @@ def adjust(player, minutes, usage):
     return min_factor * usage_factor
 
 # --------------------------------------------------
-# PROJECTION (BALANCED FIX)
+# PROJECTION
 # --------------------------------------------------
 
 def project(player, stat):
@@ -49,7 +49,7 @@ def project(player, stat):
 
     projection = base * adjust(player, minutes, usage)
 
-    # 🔥 FINAL CALIBRATION (BALANCED)
+    # final calibration
     projection *= 0.76
 
     return round(projection, 2)
@@ -61,12 +61,12 @@ def project(player, stat):
 def evaluate_prop(player, line, stat="points", **kwargs):
 
     try:
-
         projection = project(player, stat)
-
         edge = projection - line
 
-        probability = max(min(0.5 + edge / 12, 0.85), 0.45)
+        # 🔥 FINAL PROBABILITY FIX
+        probability = max(min(0.5 + edge / 9, 0.85), 0.45)
+
         confidence = min((abs(edge) / 8) * probability, 1)
 
         return {
@@ -85,7 +85,7 @@ def evaluate_prop(player, line, stat="points", **kwargs):
         return None
 
 # --------------------------------------------------
-# FILTER (BALANCED FIX)
+# FILTER
 # --------------------------------------------------
 
 def is_good_prop(prop):
