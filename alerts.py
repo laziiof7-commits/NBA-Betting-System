@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🔥 ELITE ALERT SYSTEM (RATE-LIMIT SAFE + QUEUE)
+# 🔥 ELITE ALERT SYSTEM (PRO MODE)
 # --------------------------------------------------
 
 import os
@@ -19,8 +19,11 @@ ENABLE_ALERTS = True
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 
-# ⛔ GLOBAL RATE LIMIT PROTECTION
-ALERT_COOLDOWN = 1.5  # seconds between messages
+ALERT_COOLDOWN = 1.5  # seconds
+
+# 🔥 FILTER SETTINGS
+MIN_EDGE_ALERT = 1.5   # don't alert weak plays
+MIN_PROB_ALERT = 0.55
 
 # --------------------------------------------------
 # STATE
@@ -31,7 +34,7 @@ ALERT_QUEUE = deque()
 QUEUE_RUNNING = False
 
 # --------------------------------------------------
-# CORE POST FUNCTION
+# CORE POST
 # --------------------------------------------------
 
 def _post(payload):
@@ -48,11 +51,9 @@ def _post(payload):
         try:
             res = requests.post(DISCORD_WEBHOOK, json=payload, timeout=10)
 
-            # ✅ SUCCESS
             if res.status_code in (200, 204):
                 return True
 
-            # ⏳ RATE LIMITED
             if res.status_code == 429:
                 try:
                     retry_after = res.json().get("retry_after", 2)
@@ -63,8 +64,7 @@ def _post(payload):
                 time.sleep(retry_after)
                 continue
 
-            # ❌ OTHER ERROR
-            print(f"❌ Discord status error: {res.status_code} {res.text}")
+            print(f"❌ Discord status error: {res.status_code}")
 
         except Exception as e:
             print(f"❌ Discord request failed: {e}")
@@ -74,7 +74,7 @@ def _post(payload):
     return False
 
 # --------------------------------------------------
-# QUEUE WORKER (ANTI-SPAM SYSTEM)
+# QUEUE WORKER
 # --------------------------------------------------
 
 def _queue_worker():
@@ -87,10 +87,8 @@ def _queue_worker():
 
         now = time.time()
 
-        # ⛔ COOLDOWN ENFORCED
         if now - LAST_ALERT_TIME < ALERT_COOLDOWN:
-            sleep_time = ALERT_COOLDOWN - (now - LAST_ALERT_TIME)
-            time.sleep(sleep_time)
+            time.sleep(ALERT_COOLDOWN - (now - LAST_ALERT_TIME))
 
         success = _post(payload)
 
@@ -100,7 +98,7 @@ def _queue_worker():
     QUEUE_RUNNING = False
 
 # --------------------------------------------------
-# SEND ALERT (SAFE ENTRY POINT)
+# BASE ALERT
 # --------------------------------------------------
 
 def send_discord_alert(message):
@@ -108,10 +106,8 @@ def send_discord_alert(message):
     global QUEUE_RUNNING
 
     payload = {"content": str(message)}
-
     ALERT_QUEUE.append(payload)
 
-    # 🔁 START WORKER IF NOT RUNNING
     if not QUEUE_RUNNING:
         QUEUE_RUNNING = True
         threading.Thread(target=_queue_worker, daemon=True).start()
@@ -119,29 +115,40 @@ def send_discord_alert(message):
     return True
 
 # --------------------------------------------------
-# STRUCTURED ALERTS
+# 🔥 SMART BET ALERT (MAIN FUNCTION)
 # --------------------------------------------------
 
-def send_bet_alert(game, edge, prob, market, model, bet_size=None):
+def send_smart_alert(player, stat, edge, prob, clv, bet, size):
+
+    # 🚫 FILTER BAD ALERTS
+    if abs(edge) < MIN_EDGE_ALERT or prob < MIN_PROB_ALERT:
+        return False
+
+    # 🔥 EDGE TIERS
+    if abs(edge) > 3:
+        tier = "🔥 ELITE PLAY"
+    elif abs(edge) > 2:
+        tier = "✅ STRONG PLAY"
+    else:
+        tier = "⚠️ LEAN"
 
     msg = f"""
-🔥 **AUTO BET DETECTED**
+{tier}
 
-🏀 {game}
+👤 {player}
+📊 {stat} → {bet}
 
-📊 Edge: **{edge}**
-🎯 Prob: **{prob}**
-📉 Market: **{market}**
-🧠 Model: **{model}**
+📈 Edge: **{round(edge,2)}**
+🎯 Prob: **{round(prob,2)}**
+📉 CLV: **{clv}**
+
+💰 Bet Size: **${round(size,2)}**
 """
-
-    if bet_size is not None:
-        msg += f"\n💰 Bet Size: **${bet_size}**"
 
     return send_discord_alert(msg)
 
 # --------------------------------------------------
-# EMBED ALERTS (CLEAN UI)
+# EMBED ALERT (OPTIONAL UI)
 # --------------------------------------------------
 
 def send_embed_alert(title, fields):
@@ -174,20 +181,4 @@ def send_embed_alert(title, fields):
 def send_error_alert(error_msg):
 
     msg = f"🚨 ERROR:\n```{error_msg}```"
-    return send_discord_alert(msg)
-
-# --------------------------------------------------
-# EDGE ALERT
-# --------------------------------------------------
-
-def send_edge_alert(player, stat, edge):
-
-    msg = f"""
-⚡ **HIGH EDGE PROP**
-
-👤 {player}
-📊 {stat}
-💰 Edge: **{edge}**
-"""
-
     return send_discord_alert(msg)
