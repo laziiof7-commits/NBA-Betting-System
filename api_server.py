@@ -1,65 +1,206 @@
 # --------------------------------------------------
-# 🚀 ELITE API SERVER (FINAL HARDENED VERSION)
+# 🚀 ELITE API SERVER (FULL STABLE + EDGE + FALLBACK)
 # --------------------------------------------------
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
 import threading
 import time
-import random
+from datetime import datetime
+import requests
+import os
 
-# ---------------- SAFE IMPORT ----------------
+# ---------------- SAFE IMPORT SYSTEM ----------------
 
 def safe_import(module):
     try:
         return __import__(module, fromlist=["*"])
-    except:
+    except Exception as e:
+        print(f"⚠️ Failed to import {module}: {e}")
         return None
 
 alerts = safe_import("alerts")
 prop_model = safe_import("prop_model")
 prop_tracker = safe_import("prop_tracker")
-dk_scraper = safe_import("draftkings_scraper")
+lineup_model = safe_import("lineup_model")
+odds_scraper = safe_import("odds_prop_scraper")
 pp_scraper = safe_import("prizepicks_scraper")
+dk_scraper = safe_import("draftkings_scraper")
+line_compare = safe_import("line_comparison")
 
-# ---------------- SAFE FUNCTIONS ----------------
+# ---------------- SAFE WRAPPERS ----------------
 
 def send_alert(msg):
     try:
-        if alerts:
+        if alerts and hasattr(alerts, "send_discord_alert"):
             alerts.send_discord_alert(msg)
         else:
             print(msg)
     except Exception as e:
-        print("❌ Discord error:", e)
+        print("❌ ALERT ERROR:", e)
+
 
 def evaluate_prop_safe(**kwargs):
-    return prop_model.evaluate_prop(**kwargs) if prop_model else None
+    try:
+        if prop_model and hasattr(prop_model, "evaluate_prop"):
+            return prop_model.evaluate_prop(**kwargs)
+    except Exception as e:
+        print("❌ MODEL ERROR:", e)
+    return None
+
+
+def is_good_prop_safe(p):
+    try:
+        return prop_model.is_good_prop(p)
+    except:
+        return False
+
 
 def bet_size_safe(p):
-    return prop_model.prop_bet_size(p, 10) if prop_model else 0
+    try:
+        return prop_model.prop_bet_size(p, base_size=10)
+    except:
+        return 0
+
 
 def log_prop_safe(p):
-    if prop_tracker:
-        prop_tracker.log_prop(p)
+    try:
+        if prop_tracker:
+            prop_tracker.log_prop(p)
+    except:
+        pass
 
-def get_summary_safe():
-    return prop_tracker.summary() if prop_tracker else {}
+
+def lineup_adjustment_safe(a, b):
+    try:
+        return lineup_model.lineup_adjustment(a, b)
+    except:
+        return 0
+
+# 🔥 HARD BLOCK
+os.environ["DISABLE_PLAYER_DATA"] = "1"
 
 # ---------------- INIT ----------------
 
 app = FastAPI()
 
-REFRESH_INTERVAL = 90  # 🔥 slower = less blocking
+REFRESH_INTERVAL = 30
 games_cache = {}
 ALERTED = set()
 LAST_LINES = {}
 
-# ---------------- FALLBACK ----------------
+# ---------------- UTILS ----------------
+
+def normalize(name):
+    return name.lower().replace(" ", "").replace(".", "").replace("-", "")
+
+def format_time(utc):
+    try:
+        dt = datetime.fromisoformat(utc.replace("Z", "+00:00"))
+        return dt.strftime("%H:%M")
+    except:
+        return utc
+
+# ---------------- SCHEDULE ----------------
+
+def get_schedule():
+    try:
+        url = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2.json"
+        res = requests.get(url, timeout=5)
+        data = res.json()
+
+        out = {}
+
+        for day in data["leagueSchedule"]["gameDates"][:2]:
+
+            date = day["gameDate"]
+            games = {}
+
+            for g in day.get("games", []):
+
+                home = f"{g['homeTeam']['teamCity']} {g['homeTeam']['teamName']}"
+                away = f"{g['awayTeam']['teamCity']} {g['awayTeam']['teamName']}"
+
+                key = f"{normalize(away)}@{normalize(home)}"
+
+                games[key] = {
+                    "home_team": home,
+                    "away_team": away,
+                    "time": format_time(g["gameTimeUTC"]),
+                }
+
+            out[date] = games
+
+        return out
+
+    except Exception as e:
+        print("❌ SCHEDULE ERROR:", e)
+        return {}
+
+# ---------------- MODEL ----------------
+
+def predict_total(game):
+    return round(226 + lineup_adjustment_safe(game["home_team"], game["away_team"]), 2)
+
+def calc_edge(model, market):
+    return round(model - market, 2)
+
+def prob(edge):
+    return max(min(0.5 + edge / 25, 0.75), 0.45)
+
+# --------------------------------------------------
+# 🔥 FETCH PROPS (MULTI SOURCE)
+# --------------------------------------------------
+
+def get_props():
+
+    # 1️⃣ Odds API
+    try:
+        if odds_scraper and hasattr(odds_scraper, "get_odds_props"):
+            props = odds_scraper.get_odds_props()
+            if props:
+                print(f"✅ ODDS PROPS: {len(props)}")
+                return props
+    except Exception as e:
+        print("❌ Odds error:", e)
+
+    # 2️⃣ DraftKings
+    try:
+        if dk_scraper:
+            props = dk_scraper.get_dk_props()
+            if props:
+                print(f"✅ DK PROPS: {len(props)}")
+                return props
+    except Exception as e:
+        print("❌ DK ERROR:", e)
+
+    # 3️⃣ PrizePicks
+    try:
+        if pp_scraper:
+            props = pp_scraper.get_prizepicks_props()
+            if props:
+                print(f"✅ PP PROPS: {len(props)}")
+                return props
+    except Exception as e:
+        print("❌ PrizePicks error:", e)
+
+    print("🚨 USING FALLBACK")
+    return generate_fallback_props()
+
+# --------------------------------------------------
+# 🔥 SMART FALLBACK
+# --------------------------------------------------
 
 def generate_fallback_props():
 
-    players = ["LeBron James", "Stephen Curry", "Luka Doncic", "Nikola Jokic"]
+    import random
+
+    players = [
+        "LeBron James",
+        "Stephen Curry",
+        "Luka Doncic",
+        "Nikola Jokic"
+    ]
+
     stats = ["points", "rebounds", "assists"]
 
     props = []
@@ -67,63 +208,67 @@ def generate_fallback_props():
     for player in players:
         for stat in stats:
 
+            base = {
+                "points": random.randint(24, 32),
+                "rebounds": random.randint(7, 12),
+                "assists": random.randint(6, 10)
+            }
+
             props.append({
                 "player": player,
                 "stat": stat,
-                "line": random.randint(24, 32)
+                "line": base[stat]
             })
 
-    print(f"⚠️ FALLBACK: {len(props)} props")
-
+    print(f"⚠️ FALLBACK props: {len(props)}")
     return props
 
-# ---------------- MULTI SOURCE ----------------
-
-def get_props():
-
-    # DraftKings
-    try:
-        if dk_scraper:
-            props = dk_scraper.get_dk_props()
-            if props:
-                print(f"🔥 DK SUCCESS: {len(props)}")
-                return props
-    except Exception as e:
-        print("❌ DK FAIL:", e)
-
-    # PrizePicks
-    try:
-        if pp_scraper:
-            props = pp_scraper.get_prizepicks_props()
-            if props:
-                print(f"🟡 PP SUCCESS: {len(props)}")
-                return props
-    except Exception as e:
-        print("❌ PP FAIL:", e)
-
-    # fallback
-    print("🚨 USING FALLBACK")
-    return generate_fallback_props()
-
-# ---------------- BUILD ----------------
+# --------------------------------------------------
+# 🔥 BUILD PROPS (CORE ENGINE)
+# --------------------------------------------------
 
 def build_props():
 
     props_out = []
-    raw = get_props()
 
-    for p in raw:
+    raw_props = get_props()
+
+    if not raw_props:
+        print("❌ NO PROPS FOUND")
+        return []
+
+    # ---------------- EDGE SYSTEM ----------------
+    try:
+        if line_compare and dk_scraper and pp_scraper:
+
+            dk_props = dk_scraper.get_dk_props()
+            pp_props = pp_scraper.get_prizepicks_props()
+
+            edges = line_compare.find_edges(dk_props, pp_props)
+
+            if edges:
+                print(f"💰 REAL EDGES: {len(edges)}")
+
+    except Exception as e:
+        print("❌ EDGE ERROR:", e)
+
+    # ---------------- MODEL ----------------
+
+    for p in raw_props:
 
         try:
             result = evaluate_prop_safe(
                 player=p["player"],
-                stat=p["stat"],
-                line=p["line"]
+                line=p["line"],
+                stat=p["stat"]
             )
 
             if not result:
                 continue
 
+            print(f"📊 {result['player']} {result['stat']} | Edge: {result['edge']}")
+
+            # ---------------- LINE MOVEMENT ----------------
             key = f"{p['player']}-{p['stat']}"
 
             prev = LAST_LINES.get(key)
@@ -132,8 +277,8 @@ def build_props():
             LAST_LINES[key] = p["line"]
             result["movement"] = round(movement, 2)
 
-            # 🔥 SMART FILTER (FIXED)
-            if abs(result["edge"]) > 1.2:
+            # ---------------- FILTER ----------------
+            if is_good_prop_safe(result):
 
                 size = bet_size_safe(result)
                 result["bet_size"] = size
@@ -141,12 +286,14 @@ def build_props():
                 alert_key = f"{key}-{p['line']}"
 
                 if alert_key not in ALERTED:
+
                     ALERTED.add(alert_key)
+
                     log_prop_safe(result)
 
                     send_alert(
                         f"🔥 {result['player']} {result['stat']} "
-                        f"{result['bet']} | Edge: {result['edge']}"
+                        f"{result['bet']} | Edge: {result['edge']} | Size: ${size}"
                     )
 
                 props_out.append(result)
@@ -155,7 +302,38 @@ def build_props():
             print("❌ PROP ERROR:", e)
 
     print(f"✅ GOOD PROPS: {len(props_out)}")
+
     return props_out
+
+# ---------------- CORE ----------------
+
+def build_games():
+
+    schedule = get_schedule()
+    results = {}
+
+    for date, games in schedule.items():
+
+        results[date] = {}
+
+        for key, g in games.items():
+
+            model = predict_total(g)
+            market = 226
+
+            edge = calc_edge(model, market)
+
+            results[date][key] = {
+                **g,
+                "market": market,
+                "model": model,
+                "edge": edge,
+                "probability": prob(edge)
+            }
+
+    results["props"] = build_props()
+
+    return results
 
 # ---------------- LOOP ----------------
 
@@ -166,18 +344,21 @@ def refresh_loop():
     while True:
         try:
             print("\n🔄 SYSTEM UPDATE\n")
-            games_cache = {"props": build_props()}
+            games_cache = build_games()
         except Exception as e:
             print("❌ LOOP ERROR:", e)
 
         time.sleep(REFRESH_INTERVAL)
 
-# ---------------- START ----------------
+# ---------------- STARTUP ----------------
 
 @app.on_event("startup")
 def startup():
-    print("🚀 SYSTEM STARTED")
-    threading.Thread(target=refresh_loop, daemon=True).start()
+
+    print("🚀 SYSTEM STARTED (FULL MODE)")
+
+    thread = threading.Thread(target=refresh_loop, daemon=True)
+    thread.start()
 
 # ---------------- API ----------------
 
@@ -185,25 +366,6 @@ def startup():
 def root():
     return {"status": "LIVE"}
 
-@app.get("/props")
-def props():
+@app.get("/games")
+def games():
     return games_cache or {"status": "loading"}
-
-# ---------------- DASHBOARD ----------------
-
-@app.get("/dashboard", response_class=HTMLResponse)
-def dashboard():
-
-    stats = get_summary_safe()
-
-    return f"""
-    <html>
-    <body style="background:#0f172a;color:white;text-align:center;">
-        <h1>🔥 Dashboard</h1>
-        <h2>ROI: {stats.get('roi',{}).get('roi',0)}%</h2>
-        <h2>Profit: ${stats.get('roi',{}).get('profit',0)}</h2>
-        <h2>Hit Rate: {stats.get('hit_rate',0)}</h2>
-        <h2>CLV: {stats.get('avg_clv',0)}</h2>
-    </body>
-    </html>
-    """
