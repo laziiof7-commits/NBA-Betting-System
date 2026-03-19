@@ -1,71 +1,63 @@
 # --------------------------------------------------
-# 🔥 DRAFTKINGS SCRAPER (STEALTH MODE)
+# 🔐 REQUEST MANAGER (NO CIRCULAR IMPORTS)
 # --------------------------------------------------
 
-from request_manager import safe_get
-
-URL = "https://sportsbook.draftkings.com/sites/US-SB/api/v5/eventgroups/42648?format=json"
-
-# --------------------------------------------------
-# PARSE
-# --------------------------------------------------
-
-def parse_props(data):
-
-    props = []
-
-    try:
-        categories = data.get("eventGroup", {}).get("offerCategories", [])
-
-        for cat in categories:
-
-            for sub in cat.get("offerSubcategoryDescriptors", []):
-
-                name = sub.get("name", "").lower()
-
-                if not any(x in name for x in ["points", "rebounds", "assists"]):
-                    continue
-
-                stat = (
-                    "points" if "points" in name else
-                    "rebounds" if "rebounds" in name else
-                    "assists"
-                )
-
-                for offer in sub.get("offers", []):
-
-                    for o in offer:
-
-                        try:
-                            outcome = o["outcomes"][0]
-
-                            props.append({
-                                "player": outcome["participant"],
-                                "stat": stat,
-                                "line": float(outcome["line"])
-                            })
-
-                        except:
-                            continue
-
-    except Exception as e:
-        print("❌ PARSE ERROR:", e)
-
-    return props
+import requests
+import random
+import time
 
 # --------------------------------------------------
-# MAIN
+# RANDOM HEADERS (ANTI-BLOCK)
 # --------------------------------------------------
 
-def get_dk_props():
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "Mozilla/5.0 (X11; Linux x86_64)"
+]
 
-    data = safe_get(URL)
+def random_headers():
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "application/json",
+        "Connection": "keep-alive"
+    }
 
-    if not data:
-        return []
+# --------------------------------------------------
+# SESSION
+# --------------------------------------------------
 
-    props = parse_props(data)
+def create_session():
+    s = requests.Session()
+    s.headers.update(random_headers())
+    return s
 
-    print(f"📊 DK PROPS: {len(props)}")
+# --------------------------------------------------
+# SAFE GET (RETRY + ANTI-BLOCK)
+# --------------------------------------------------
 
-    return props
+def safe_get(url, params=None, retries=3):
+
+    for attempt in range(retries):
+
+        try:
+            res = requests.get(
+                url,
+                params=params,
+                headers=random_headers(),
+                timeout=8
+            )
+
+            if res.status_code == 200:
+                return res.json()
+
+            if res.status_code in (403, 429):
+                time.sleep(1.5 * (attempt + 1))
+                continue
+
+            return None
+
+        except Exception:
+            time.sleep(1)
+
+    return None
