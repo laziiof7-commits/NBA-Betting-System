@@ -1,117 +1,107 @@
 # --------------------------------------------------
-# 🔥 MULTI-BOOK PROP SCRAPER (FINAL VERSION)
+# 🔥 ODDS API INTEGRATION (STABLE MODE)
 # --------------------------------------------------
 
-def safe_import(module, func):
-    try:
-        m = __import__(module, fromlist=[func])
-        return getattr(m, func)
-    except Exception as e:
-        print(f"⚠️ Import failed: {module} -> {e}")
-        return None
+import requests
+import os
 
-# ---------------- LOAD SCRAPERS ----------------
+API_KEY = os.getenv("ODDS_API_KEY") or "cb851ffe64d928cce8294684d8f8b74c"
 
-get_pp = safe_import("prizepicks_scraper", "get_prizepicks_props")
-get_dk = safe_import("draftkings_scraper", "get_dk_props")
-get_fd = safe_import("fanduel_scraper", "get_fd_props")
+SPORT = "basketball_nba"
+REGION = "us"
+MARKETS = "spreads,totals"
+
+URL = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds"
 
 # --------------------------------------------------
-# 🔥 NORMALIZE PROP
+# FETCH ODDS
 # --------------------------------------------------
 
-def normalize_prop(p, book):
+def fetch_odds():
 
     try:
-        return {
-            "player": str(p.get("player")).strip(),
-            "stat": str(p.get("stat")).lower().strip(),
-            "line": float(p.get("line")),
-            "book": book
+        params = {
+            "apiKey": API_KEY,
+            "regions": REGION,
+            "markets": MARKETS,
+            "oddsFormat": "american"
         }
-    except:
-        return None
+
+        res = requests.get(URL, params=params, timeout=10)
+
+        if res.status_code != 200:
+            print(f"❌ Odds API error: {res.status_code}")
+            return []
+
+        return res.json()
+
+    except Exception as e:
+        print("❌ ODDS API ERROR:", e)
+        return []
 
 # --------------------------------------------------
-# 🔥 DEDUPLICATION
+# CONVERT TO SYSTEM FORMAT
 # --------------------------------------------------
 
-def dedupe_props(props):
+def parse_games(data):
 
-    seen = set()
-    unique = []
+    props = []
 
-    for p in props:
-        key = (p["player"], p["stat"], p["line"], p["book"])
+    for game in data:
 
-        if key not in seen:
-            seen.add(key)
-            unique.append(p)
+        home = game.get("home_team")
+        away = game.get("away_team")
 
-    return unique
+        if not home or not away:
+            continue
+
+        game_name = f"{away} @ {home}"
+
+        bookmakers = game.get("bookmakers", [])
+
+        for book in bookmakers:
+
+            for market in book.get("markets", []):
+
+                key = market.get("key")
+
+                for outcome in market.get("outcomes", []):
+
+                    try:
+                        if key == "totals":
+
+                            props.append({
+                                "player": game_name,
+                                "stat": "total",
+                                "line": float(outcome["point"]),
+                                "book": book.get("title")
+                            })
+
+                        elif key == "spreads":
+
+                            props.append({
+                                "player": game_name,
+                                "stat": "spread",
+                                "line": float(outcome["point"]),
+                                "book": book.get("title")
+                            })
+
+                    except:
+                        continue
+
+    print(f"📊 Odds API games: {len(props)}")
+
+    return props
 
 # --------------------------------------------------
-# 🔥 MAIN FUNCTION
+# MAIN
 # --------------------------------------------------
 
 def get_odds_props():
 
-    all_props = []
+    data = fetch_odds()
 
-    # ---------------- PRIZEPICKS ----------------
-    if get_pp:
-        try:
-            props = get_pp()
-            if props:
-                print(f"📊 PrizePicks: {len(props)}")
-
-                for p in props:
-                    norm = normalize_prop(p, "PrizePicks")
-                    if norm:
-                        all_props.append(norm)
-
-        except Exception as e:
-            print("❌ PP error:", e)
-
-    # ---------------- DRAFTKINGS ----------------
-    if get_dk:
-        try:
-            props = get_dk()
-            if props:
-                print(f"📊 DraftKings: {len(props)}")
-
-                for p in props:
-                    norm = normalize_prop(p, "DraftKings")
-                    if norm:
-                        all_props.append(norm)
-
-        except Exception as e:
-            print("❌ DK error:", e)
-
-    # ---------------- FANDUEL ----------------
-    if get_fd:
-        try:
-            props = get_fd()
-            if props:
-                print(f"📊 FanDuel: {len(props)}")
-
-                for p in props:
-                    norm = normalize_prop(p, "FanDuel")
-                    if norm:
-                        all_props.append(norm)
-
-        except Exception as e:
-            print("❌ FD error:", e)
-
-    # ---------------- FINAL ----------------
-
-    if not all_props:
-        print("🚨 NO BOOKS AVAILABLE → fallback")
+    if not data:
         return []
 
-    # 🔥 remove duplicates
-    all_props = dedupe_props(all_props)
-
-    print(f"📊 TOTAL PROPS COMBINED: {len(all_props)}")
-
-    return all_props
+    return parse_games(data)
