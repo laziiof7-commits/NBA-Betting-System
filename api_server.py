@@ -1,8 +1,9 @@
 # --------------------------------------------------
-# 🚀 API SERVER (PRO MODE - STABLE + FIXED)
+# 🚀 API SERVER (PRO MODE - FULL SYSTEM + FILTER FIX)
 # --------------------------------------------------
 
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
 import threading
 import time
 from datetime import datetime
@@ -26,9 +27,20 @@ get_odds_props = safe_import("odds_prop_scraper", "get_odds_props")
 
 group_props = safe_import("line_engine", "group_props")
 get_best_lines = safe_import("line_engine", "get_best_lines")
-track_clv = safe_import("line_engine", "track_clv")
 
 get_bet_size = safe_import("bankroll_manager", "get_bet_size")
+
+# 🔥 REAL CLV
+record_prop_line = safe_import("clv_tracker", "record_prop_line")
+update_prop_line = safe_import("clv_tracker", "update_prop_line")
+
+# 🔥 DASHBOARD
+calculate_clv = safe_import("clv_tracker", "calculate_clv")
+calculate_roi = safe_import("clv_tracker", "calculate_roi")
+model_health = safe_import("clv_tracker", "model_health")
+
+# 🔥 ALERTS
+send_smart_alert = safe_import("alerts", "send_smart_alert")
 
 # ---------------- FALLBACK DEFAULTS ----------------
 
@@ -50,11 +62,17 @@ if not group_props:
 if not get_best_lines:
     def get_best_lines(x): return x
 
-if not track_clv:
-    def track_clv(*args): return 0
-
 if not get_bet_size:
     def get_bet_size(**kwargs): return 10
+
+if not record_prop_line:
+    def record_prop_line(*args): pass
+
+if not update_prop_line:
+    def update_prop_line(*args): return 0
+
+if not send_smart_alert:
+    def send_smart_alert(*args): pass
 
 # 🔥 HARD BLOCK
 os.environ["DISABLE_PLAYER_DATA"] = "1"
@@ -68,48 +86,28 @@ games_cache = {}
 ALERTED = set()
 
 # --------------------------------------------------
-# 🔥 FALLBACK (FIXED + STRONG EDGES)
+# 🔥 FALLBACK
 # --------------------------------------------------
 
 def generate_fallback_props():
 
-    players = [
-        "LeBron James",
-        "Stephen Curry",
-        "Luka Doncic",
-        "Nikola Jokic"
-    ]
-
+    players = ["LeBron James", "Stephen Curry", "Luka Doncic", "Nikola Jokic"]
     stats = ["points", "rebounds", "assists"]
-
-    base_lines = {
-        "points": (24, 32),
-        "rebounds": (6, 12),
-        "assists": (5, 10)
-    }
 
     props = []
 
     for player in players:
         for stat in stats:
-
             try:
                 proj = project(player, stat)
-            except:
+            except Exception:
                 proj = None
 
             if proj is not None:
-                # 🔥 FIXED EDGE GENERATION
-                shift = random.uniform(2.0, 5.0)
-
-                if random.random() > 0.5:
-                    line = round(proj - shift, 1)  # OVER edge
-                else:
-                    line = round(proj + shift, 1)  # UNDER edge
-
+                shift = random.uniform(2, 5)
+                line = round(proj - shift if random.random() > 0.5 else proj + shift, 1)
             else:
-                low, high = base_lines[stat]
-                line = round(random.uniform(low, high), 1)
+                line = round(random.uniform(5, 30), 1)
 
             props.append({
                 "player": player,
@@ -122,12 +120,11 @@ def generate_fallback_props():
     return props
 
 # --------------------------------------------------
-# 🔥 PROPS ENGINE (FIXED FILTER + STABLE FLOW)
+# 🔥 PROPS ENGINE
 # --------------------------------------------------
 
 def build_props():
 
-    # ---------------- FETCH ----------------
     try:
         raw_props = get_odds_props()
     except Exception as e:
@@ -140,7 +137,6 @@ def build_props():
     else:
         print(f"📡 USING REAL ODDS ({len(raw_props)})")
 
-    # ---------------- GROUP ----------------
     try:
         grouped = group_props(raw_props)
         best_lines = get_best_lines(grouped)
@@ -151,7 +147,6 @@ def build_props():
     props_out = []
 
     for p in best_lines:
-
         try:
             player = p.get("player")
             stat = p.get("stat")
@@ -160,39 +155,40 @@ def build_props():
             if not player or not stat or line is None:
                 continue
 
-            result = evaluate_prop(
-                player=player,
-                line=line,
-                stat=stat
-            )
-
+            result = evaluate_prop(player=player, line=line, stat=stat)
             if not result:
                 continue
 
             edge = result.get("edge", 0)
 
-            # 🔥 probability fallback
             prob = result.get("probability")
             if prob is None:
-                prob = 0.5 + (edge / 20)
+                prob = 0.5 + (edge / 15)
 
-            # 🔥 CLV tracking
-            clv = track_clv(player, stat, line)
+            prob = max(min(prob, 0.85), 0.45)
+
+            # 🔥 REAL CLV
+            record_prop_line(player, stat, line)
+            clv = update_prop_line(player, stat, line)
 
             print(
-                f"📊 {player} {stat} | "
+                f"DEBUG → {player} {stat} | "
                 f"Edge: {round(edge,2)} | "
                 f"Prob: {round(prob,3)} | "
                 f"CLV: {clv}"
             )
 
-            # --------------------------------------------------
-            # 🔥 FIX: RELAX FILTER (prevents 0 props loop)
-            # --------------------------------------------------
-            if abs(edge) < 0.15:
+            # 🔥 DYNAMIC FILTER
+            min_edge = 0.25
+            min_prob = 0.51
+
+            if len(raw_props) > 1000:
+                min_edge = 0.15
+                min_prob = 0.50
+
+            if abs(edge) < min_edge or prob < min_prob:
                 continue
 
-            # ---------------- BET SIZE ----------------
             size = get_bet_size(
                 probability=prob,
                 edge_score=abs(edge) * 10,
@@ -203,15 +199,27 @@ def build_props():
             if size <= 0:
                 continue
 
-            result["bet_size"] = size
-            result["clv"] = clv
-            result["probability"] = prob
+            result.update({
+                "bet_size": size,
+                "clv": clv,
+                "probability": prob
+            })
 
             key = f"{player}-{stat}-{line}"
 
             if key not in ALERTED:
                 ALERTED.add(key)
                 log_prop(result)
+
+                send_smart_alert(
+                    player,
+                    stat,
+                    edge,
+                    prob,
+                    clv,
+                    result.get("bet", "OVER" if edge > 0 else "UNDER"),
+                    size
+                )
 
             props_out.append(result)
 
@@ -231,12 +239,7 @@ def build_games():
         "timestamp": datetime.utcnow().isoformat()
     }
 
-# --------------------------------------------------
-# 🔁 LOOP
-# --------------------------------------------------
-
 def refresh_loop():
-
     global games_cache
 
     while True:
@@ -254,7 +257,7 @@ def refresh_loop():
 
 @app.on_event("startup")
 def startup():
-    print("🚀 SYSTEM STARTED (PRO MODE - FIXED)")
+    print("🚀 SYSTEM STARTED (FULL MODE)")
     threading.Thread(target=refresh_loop, daemon=True).start()
 
 # --------------------------------------------------
@@ -268,3 +271,51 @@ def root():
 @app.get("/games")
 def games():
     return games_cache or {"status": "loading"}
+
+@app.get("/props")
+def props():
+    return games_cache.get("props", [])
+
+@app.get("/dashboard")
+def dashboard():
+    return {
+        "roi": calculate_roi() if calculate_roi else {},
+        "clv": calculate_clv() if calculate_clv else {},
+        "health": model_health() if model_health else "unknown",
+        "props_count": len(games_cache.get("props", []))
+    }
+
+# --------------------------------------------------
+# 🔥 UI DASHBOARD
+# --------------------------------------------------
+
+@app.get("/ui", response_class=HTMLResponse)
+def ui():
+    return """
+    <html>
+    <body style="background:#0f172a;color:white;font-family:sans-serif;padding:20px">
+    <h1>🔥 Betting Dashboard</h1>
+    <div id="data"></div>
+
+    <script>
+    async function load(){
+        let d = await fetch('/dashboard').then(r=>r.json());
+        let p = await fetch('/props').then(r=>r.json());
+
+        let html = `<h2>ROI: ${d.roi?.roi || 0}%</h2>`;
+
+        p.forEach(x=>{
+            html += `<div>
+                ${x.player} ${x.stat} | Edge: ${x.edge} | Bet: ${x.bet} | Size: $${x.bet_size}
+            </div>`;
+        });
+
+        document.getElementById('data').innerHTML = html;
+    }
+
+    setInterval(load,3000);
+    load();
+    </script>
+    </body>
+    </html>
+    """
