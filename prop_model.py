@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🔥 PROP MODEL (FINAL CALIBRATED VERSION)
+# 🔥 PROP MODEL (FINAL BALANCED VERSION)
 # --------------------------------------------------
 
 def safe_import(module, func, default):
@@ -37,7 +37,7 @@ def adjust(player, minutes, usage):
     return min_factor * usage_factor
 
 # --------------------------------------------------
-# PROJECTION (FINAL FIXED)
+# PROJECTION (BALANCED FIX)
 # --------------------------------------------------
 
 def project(player, stat):
@@ -49,8 +49,8 @@ def project(player, stat):
 
     projection = base * adjust(player, minutes, usage)
 
-    # 🔥 FINAL CALIBRATION (FIXES HUGE EDGES)
-    projection *= 0.70
+    # 🔥 FINAL CALIBRATION (BALANCED)
+    projection *= 0.76
 
     return round(projection, 2)
 
@@ -85,7 +85,7 @@ def evaluate_prop(player, line, stat="points", **kwargs):
         return None
 
 # --------------------------------------------------
-# FILTER (FINAL TIGHT)
+# FILTER (BALANCED FIX)
 # --------------------------------------------------
 
 def is_good_prop(prop):
@@ -94,78 +94,7 @@ def is_good_prop(prop):
         return False
 
     return (
-        1.5 < abs(prop["edge"]) < 3.5
-        and prop["probability"] > 0.58
-        and prop["confidence"] > 0.30
-    )
-
-# --------------------------------------------------
-# BET SIZE
-# --------------------------------------------------
-
-def prop_bet_size(prop, base_size=10):
-
-    if not prop:
-        return 0
-
-    return round(base_size * (1 + prop["confidence"]), 2)    return min_factor * usage_factor
-
-# --------------------------------------------------
-# PROJECTION
-# --------------------------------------------------
-
-def project(player, stat):
-
-    minutes = project_minutes(player)
-    usage = project_usage(player)
-
-    base = BASELINES.get(stat, 10)
-
-    projection = base * adjust(player, minutes, usage)
-
-    return round(projection, 2)
-
-# --------------------------------------------------
-# EVALUATE
-# --------------------------------------------------
-
-def evaluate_prop(player, line, stat="points", **kwargs):
-
-    try:
-
-        projection = project(player, stat)
-
-        edge = projection - line
-
-        probability = max(min(0.5 + edge / 12, 0.85), 0.45)
-        confidence = min((abs(edge) / 8) * probability, 1)
-
-        return {
-            "player": player,
-            "stat": stat,
-            "line": line,
-            "projection": projection,
-            "edge": round(edge, 2),
-            "probability": round(probability, 3),
-            "confidence": round(confidence, 2),
-            "bet": "OVER" if edge > 0 else "UNDER"
-        }
-
-    except Exception as e:
-        print("❌ MODEL ERROR:", e)
-        return None
-
-# --------------------------------------------------
-# FILTER (FIXED)
-# --------------------------------------------------
-
-def is_good_prop(prop):
-
-    if not prop:
-        return False
-
-    return (
-        1.5 < abs(prop["edge"]) < 5
+        1.2 < abs(prop["edge"]) < 4
         and prop["probability"] > 0.58
         and prop["confidence"] > 0.30
     )
