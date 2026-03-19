@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🚀 API SERVER (PRO MODE - FULL SYSTEM + FILTER FIX)
+# 🚀 API SERVER (PRO MODE - HYBRID + FINAL)
 # --------------------------------------------------
 
 from fastapi import FastAPI
@@ -30,16 +30,13 @@ get_best_lines = safe_import("line_engine", "get_best_lines")
 
 get_bet_size = safe_import("bankroll_manager", "get_bet_size")
 
-# 🔥 REAL CLV
 record_prop_line = safe_import("clv_tracker", "record_prop_line")
 update_prop_line = safe_import("clv_tracker", "update_prop_line")
 
-# 🔥 DASHBOARD
 calculate_clv = safe_import("clv_tracker", "calculate_clv")
 calculate_roi = safe_import("clv_tracker", "calculate_roi")
 model_health = safe_import("clv_tracker", "model_health")
 
-# 🔥 ALERTS
 send_smart_alert = safe_import("alerts", "send_smart_alert")
 
 # ---------------- FALLBACK DEFAULTS ----------------
@@ -86,6 +83,43 @@ games_cache = {}
 ALERTED = set()
 
 # --------------------------------------------------
+# 🧠 HYBRID PLAYER PROPS
+# --------------------------------------------------
+
+def generate_hybrid_props(game_lines):
+
+    players = ["LeBron James", "Stephen Curry", "Luka Doncic", "Nikola Jokic"]
+    stats = ["points", "rebounds", "assists"]
+
+    totals = [g["line"] for g in game_lines if g.get("stat") == "total"]
+    avg_total = sum(totals) / len(totals) if totals else 220
+
+    scale = avg_total / 220
+
+    props = []
+
+    for player in players:
+        for stat in stats:
+
+            proj = project(player, stat)
+            if proj is None:
+                continue
+
+            adj_proj = proj * scale
+
+            line = round(adj_proj + random.uniform(-1.5, 1.5), 1)
+
+            props.append({
+                "player": player,
+                "stat": stat,
+                "line": line,
+                "book": "hybrid"
+            })
+
+    print(f"🧠 HYBRID PROPS: {len(props)} | Avg Total: {round(avg_total,1)}")
+    return props
+
+# --------------------------------------------------
 # 🔥 FALLBACK
 # --------------------------------------------------
 
@@ -98,10 +132,8 @@ def generate_fallback_props():
 
     for player in players:
         for stat in stats:
-            try:
-                proj = project(player, stat)
-            except Exception:
-                proj = None
+
+            proj = project(player, stat)
 
             if proj is not None:
                 shift = random.uniform(2, 5)
@@ -125,23 +157,26 @@ def generate_fallback_props():
 
 def build_props():
 
+    # ---------------- FETCH ----------------
     try:
-        raw_props = get_odds_props()
+        game_lines = get_odds_props()
     except Exception as e:
         print("❌ ODDS ERROR:", e)
-        raw_props = []
+        game_lines = []
 
-    if not raw_props:
+    # ---------------- HYBRID ----------------
+    if game_lines:
+        print(f"📡 USING ODDS API ({len(game_lines)}) → HYBRID MODE")
+        raw_props = generate_hybrid_props(game_lines)
+    else:
         print("🚨 USING FALLBACK")
         raw_props = generate_fallback_props()
-    else:
-        print(f"📡 USING REAL ODDS ({len(raw_props)})")
 
+    # ---------------- GROUP ----------------
     try:
         grouped = group_props(raw_props)
         best_lines = get_best_lines(grouped)
-    except Exception as e:
-        print("⚠️ GROUP ERROR:", e)
+    except Exception:
         best_lines = raw_props
 
     props_out = []
@@ -167,7 +202,6 @@ def build_props():
 
             prob = max(min(prob, 0.85), 0.45)
 
-            # 🔥 REAL CLV
             record_prop_line(player, stat, line)
             clv = update_prop_line(player, stat, line)
 
@@ -230,7 +264,7 @@ def build_props():
     return props_out
 
 # --------------------------------------------------
-# 🔄 CORE LOOP
+# 🔄 LOOP
 # --------------------------------------------------
 
 def build_games():
@@ -257,7 +291,7 @@ def refresh_loop():
 
 @app.on_event("startup")
 def startup():
-    print("🚀 SYSTEM STARTED (FULL MODE)")
+    print("🚀 SYSTEM STARTED (HYBRID MODE)")
     threading.Thread(target=refresh_loop, daemon=True).start()
 
 # --------------------------------------------------
@@ -286,7 +320,7 @@ def dashboard():
     }
 
 # --------------------------------------------------
-# 🔥 UI DASHBOARD
+# 🖥 UI
 # --------------------------------------------------
 
 @app.get("/ui", response_class=HTMLResponse)
