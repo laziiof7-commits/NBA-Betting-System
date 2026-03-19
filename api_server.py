@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🚀 API SERVER (PRO MODE - HYBRID + FINAL)
+# 🚀 API SERVER (FULL SHARP SYSTEM)
 # --------------------------------------------------
 
 from fastapi import FastAPI
@@ -7,304 +7,252 @@ from fastapi.responses import HTMLResponse
 import threading
 import time
 from datetime import datetime
-import os
 import random
 
-# ---------------- SAFE IMPORTS ----------------
+# ---------------- IMPORTS ----------------
 
-def safe_import(module, func=None):
-    try:
-        m = __import__(module, fromlist=[func] if func else [])
-        return getattr(m, func) if func else m
-    except:
-        return None
-
-evaluate_prop = safe_import("prop_model", "evaluate_prop")
-project = safe_import("prop_model", "project")
-
-log_prop = safe_import("prop_tracker", "log_prop")
-get_odds_props = safe_import("odds_prop_scraper", "get_odds_props")
-
-group_props = safe_import("line_engine", "group_props")
-get_best_lines = safe_import("line_engine", "get_best_lines")
-
-get_bet_size = safe_import("bankroll_manager", "get_bet_size")
-
-record_prop_line = safe_import("clv_tracker", "record_prop_line")
-update_prop_line = safe_import("clv_tracker", "update_prop_line")
-
-calculate_clv = safe_import("clv_tracker", "calculate_clv")
-calculate_roi = safe_import("clv_tracker", "calculate_roi")
-model_health = safe_import("clv_tracker", "model_health")
-
-send_smart_alert = safe_import("alerts", "send_smart_alert")
-
-# ---------------- FALLBACK DEFAULTS ----------------
-
-if not evaluate_prop:
-    def evaluate_prop(**kwargs): return None
-
-if not project:
-    def project(player, stat): return None
-
-if not log_prop:
-    def log_prop(x): pass
-
-if not get_odds_props:
-    def get_odds_props(): return []
-
-if not group_props:
-    def group_props(x): return {}
-
-if not get_best_lines:
-    def get_best_lines(x): return x
-
-if not get_bet_size:
-    def get_bet_size(**kwargs): return 10
-
-if not record_prop_line:
-    def record_prop_line(*args): pass
-
-if not update_prop_line:
-    def update_prop_line(*args): return 0
-
-if not send_smart_alert:
-    def send_smart_alert(*args): pass
-
-# 🔥 HARD BLOCK
-os.environ["DISABLE_PLAYER_DATA"] = "1"
+from prop_model import evaluate_prop, project
+from odds_prop_scraper import get_odds_props
+from bankroll_manager import get_bet_size
+from clv_tracker import record_prop_line, update_prop_line, calculate_clv, calculate_roi, model_health
+from alerts import send_smart_alert
+from prop_tracker import log_prop
 
 # ---------------- INIT ----------------
 
 app = FastAPI()
 
-REFRESH_INTERVAL = random.randint(40, 70)
 games_cache = {}
 ALERTED = set()
+REFRESH_INTERVAL = random.randint(40, 70)
 
-# --------------------------------------------------
-# 🧠 HYBRID PLAYER PROPS
-# --------------------------------------------------
+# ---------------- LINE MEMORY ----------------
 
-def generate_hybrid_props(game_lines):
+LINE_HISTORY = {}
 
-    players = ["LeBron James", "Stephen Curry", "Luka Doncic", "Nikola Jokic"]
-    stats = ["points", "rebounds", "assists"]
+def track_line(key, line):
+    if key not in LINE_HISTORY:
+        LINE_HISTORY[key] = []
 
-    totals = [g["line"] for g in game_lines if g.get("stat") == "total"]
-    avg_total = sum(totals) / len(totals) if totals else 220
+    LINE_HISTORY[key].append({
+        "line": line,
+        "time": time.time()
+    })
 
-    scale = avg_total / 220
+    LINE_HISTORY[key] = LINE_HISTORY[key][-6:]
 
-    props = []
+def analyze_movement(key):
+    history = LINE_HISTORY.get(key, [])
 
-    for player in players:
-        for stat in stats:
+    if len(history) < 2:
+        return 0, 0
 
-            proj = project(player, stat)
-            if proj is None:
-                continue
+    start = history[0]["line"]
+    end = history[-1]["line"]
 
-            adj_proj = proj * scale
+    movement = end - start
+    dt = history[-1]["time"] - history[0]["time"]
+    velocity = movement / dt if dt > 0 else 0
 
-            line = round(adj_proj + random.uniform(-1.5, 1.5), 1)
+    return round(movement, 2), round(velocity, 4)
 
-            props.append({
-                "player": player,
-                "stat": stat,
-                "line": line,
-                "book": "hybrid"
-            })
+# ---------------- EDGE BOOST ----------------
 
-    print(f"🧠 HYBRID PROPS: {len(props)} | Avg Total: {round(avg_total,1)}")
-    return props
+def enhance_edge(edge, clv, movement, velocity):
 
-# --------------------------------------------------
-# 🔥 FALLBACK
-# --------------------------------------------------
+    boost = 0
 
-def generate_fallback_props():
+    if clv > 1: boost += 0.5
+    if clv > 2: boost += 1
 
-    players = ["LeBron James", "Stephen Curry", "Luka Doncic", "Nikola Jokic"]
-    stats = ["points", "rebounds", "assists"]
+    if abs(movement) > 2: boost += 0.5
+    if abs(velocity) > 0.05: boost += 0.5
 
-    props = []
+    if (edge > 0 and movement > 0): boost += 0.5
+    if (edge < 0 and movement < 0): boost += 0.5
 
-    for player in players:
-        for stat in stats:
+    if (edge > 0 and movement < 0): boost -= 0.75
+    if (edge < 0 and movement > 0): boost -= 0.75
 
-            proj = project(player, stat)
+    return edge + boost
 
-            if proj is not None:
-                shift = random.uniform(2, 5)
-                line = round(proj - shift if random.random() > 0.5 else proj + shift, 1)
-            else:
-                line = round(random.uniform(5, 30), 1)
+# ---------------- TEAM MODEL ----------------
 
-            props.append({
-                "player": player,
-                "stat": stat,
-                "line": line,
-                "book": "fallback"
-            })
+TEAM_STATS = {
+    "Lakers": {"pace": 101, "off": 114, "def": 113},
+    "Warriors": {"pace": 102, "off": 116, "def": 115},
+    "Celtics": {"pace": 99, "off": 118, "def": 110},
+    "Nuggets": {"pace": 97, "off": 117, "def": 112},
+    "Bucks": {"pace": 100, "off": 119, "def": 113},
+    "Suns": {"pace": 98, "off": 115, "def": 114},
+}
 
-    print(f"⚠️ FALLBACK: {len(props)} props")
-    return props
+def parse_teams(game):
+    try:
+        a, b = game.split("@")
+        return a.strip(), b.strip()
+    except:
+        return None, None
 
-# --------------------------------------------------
-# 🔥 PROPS ENGINE
-# --------------------------------------------------
+def evaluate_game_prop(game, line, market):
+
+    away, home = parse_teams(game)
+
+    if not away or not home:
+        return None
+
+    a = TEAM_STATS.get(away)
+    h = TEAM_STATS.get(home)
+
+    if not a or not h:
+        return None
+
+    if market == "total":
+        pace = (a["pace"] + h["pace"]) / 2
+        pts = (pace * (a["off"]/h["def"]) + pace * (h["off"]/a["def"])) / 2.2
+        edge = pts - line
+        model_line = pts
+
+    elif market == "spread":
+        diff = (h["off"]-h["def"]) - (a["off"]-a["def"])
+        model_line = diff / 2
+        edge = model_line - line
+
+    else:
+        return None
+
+    prob = max(min(0.5 + edge/12, 0.85), 0.45)
+
+    return {
+        "type": "game",
+        "game": game,
+        "market": market,
+        "line": line,
+        "edge": round(edge, 2),
+        "probability": round(prob, 3),
+        "bet": "OVER" if edge > 0 else "UNDER"
+    }
+
+# ---------------- CORE ENGINE ----------------
 
 def build_props():
 
-    # ---------------- FETCH ----------------
-    try:
-        game_lines = get_odds_props()
-    except Exception as e:
-        print("❌ ODDS ERROR:", e)
-        game_lines = []
+    raw = get_odds_props()
 
-    # ---------------- HYBRID ----------------
-    if game_lines:
-        print(f"📡 USING ODDS API ({len(game_lines)}) → HYBRID MODE")
-        raw_props = generate_hybrid_props(game_lines)
-    else:
-        print("🚨 USING FALLBACK")
-        raw_props = generate_fallback_props()
+    player_props = []
+    game_props = []
 
-    # ---------------- GROUP ----------------
-    try:
-        grouped = group_props(raw_props)
-        best_lines = get_best_lines(grouped)
-    except Exception:
-        best_lines = raw_props
+    for p in raw:
+
+        if p.get("stat") in ["points","rebounds","assists"]:
+            player_props.append(p)
+
+        elif p.get("stat") in ["spread","total"]:
+            game_props.append(p)
 
     props_out = []
 
-    for p in best_lines:
-        try:
-            player = p.get("player")
-            stat = p.get("stat")
-            line = p.get("best_over_line") or p.get("line")
+    # PLAYER
+    for p in player_props:
 
-            if not player or not stat or line is None:
-                continue
+        result = evaluate_prop(
+            player=p["player"],
+            line=p["line"],
+            stat=p["stat"]
+        )
 
-            result = evaluate_prop(player=player, line=line, stat=stat)
-            if not result:
-                continue
+        if not result:
+            continue
 
-            edge = result.get("edge", 0)
+        edge = result["edge"]
+        prob = result["probability"]
 
-            prob = result.get("probability")
-            if prob is None:
-                prob = 0.5 + (edge / 15)
+        key = f"{p['player']}-{p['stat']}"
 
-            prob = max(min(prob, 0.85), 0.45)
+        track_line(key, p["line"])
+        movement, velocity = analyze_movement(key)
 
-            record_prop_line(player, stat, line)
-            clv = update_prop_line(player, stat, line)
+        record_prop_line(p["player"], p["stat"], p["line"])
+        clv = update_prop_line(p["player"], p["stat"], p["line"])
 
-            print(
-                f"DEBUG → {player} {stat} | "
-                f"Edge: {round(edge,2)} | "
-                f"Prob: {round(prob,3)} | "
-                f"CLV: {clv}"
-            )
+        boosted = enhance_edge(edge, clv, movement, velocity)
 
-            # 🔥 DYNAMIC FILTER
-            min_edge = 0.25
-            min_prob = 0.51
+        if abs(boosted) < 0.2 or prob < 0.5:
+            continue
 
-            if len(raw_props) > 1000:
-                min_edge = 0.15
-                min_prob = 0.50
+        size = get_bet_size(
+            probability=prob,
+            edge_score=abs(boosted)*10,
+            bankroll=1000,
+            clv=clv
+        )
 
-            if abs(edge) < min_edge or prob < min_prob:
-                continue
+        result.update({
+            "type": "player",
+            "bet_size": size,
+            "clv": clv
+        })
 
-            size = get_bet_size(
-                probability=prob,
-                edge_score=abs(edge) * 10,
-                bankroll=1000,
-                clv=clv
-            )
+        props_out.append(result)
 
-            if size <= 0:
-                continue
+    # GAME
+    for p in game_props:
 
-            result.update({
-                "bet_size": size,
-                "clv": clv,
-                "probability": prob
-            })
+        result = evaluate_game_prop(
+            p.get("game"),
+            p.get("line"),
+            p.get("stat")
+        )
 
-            key = f"{player}-{stat}-{line}"
+        if not result:
+            continue
 
-            if key not in ALERTED:
-                ALERTED.add(key)
-                log_prop(result)
+        edge = result["edge"]
+        prob = result["probability"]
 
-                send_smart_alert(
-                    player,
-                    stat,
-                    edge,
-                    prob,
-                    clv,
-                    result.get("bet", "OVER" if edge > 0 else "UNDER"),
-                    size
-                )
+        key = f"{p.get('game')}-{p.get('stat')}"
 
-            props_out.append(result)
+        track_line(key, p["line"])
+        movement, velocity = analyze_movement(key)
 
-        except Exception as e:
-            print("❌ PROP ERROR:", e)
+        boosted = enhance_edge(edge, 0, movement, velocity)
 
-    print(f"✅ GOOD PROPS: {len(props_out)}")
+        if abs(boosted) < 1.5 or prob < 0.52:
+            continue
+
+        size = get_bet_size(
+            probability=prob,
+            edge_score=abs(boosted)*10,
+            bankroll=1000
+        )
+
+        result["bet_size"] = size
+
+        props_out.append(result)
+
+    print(f"✅ TOTAL PLAYS: {len(props_out)}")
     return props_out
 
-# --------------------------------------------------
-# 🔄 LOOP
-# --------------------------------------------------
-
-def build_games():
-    return {
-        "props": build_props(),
-        "timestamp": datetime.utcnow().isoformat()
-    }
+# ---------------- LOOP ----------------
 
 def refresh_loop():
     global games_cache
-
     while True:
-        try:
-            print("\n🔄 SYSTEM UPDATE\n")
-            games_cache = build_games()
-        except Exception as e:
-            print("❌ LOOP ERROR:", e)
-
+        games_cache = {
+            "props": build_props(),
+            "timestamp": datetime.utcnow().isoformat()
+        }
         time.sleep(REFRESH_INTERVAL)
 
-# --------------------------------------------------
-# 🚀 STARTUP
-# --------------------------------------------------
-
 @app.on_event("startup")
-def startup():
-    print("🚀 SYSTEM STARTED (HYBRID MODE)")
+def start():
     threading.Thread(target=refresh_loop, daemon=True).start()
 
-# --------------------------------------------------
-# 🌐 API
-# --------------------------------------------------
+# ---------------- API ----------------
 
 @app.get("/")
 def root():
     return {"status": "LIVE"}
-
-@app.get("/games")
-def games():
-    return games_cache or {"status": "loading"}
 
 @app.get("/props")
 def props():
@@ -313,43 +261,7 @@ def props():
 @app.get("/dashboard")
 def dashboard():
     return {
-        "roi": calculate_roi() if calculate_roi else {},
-        "clv": calculate_clv() if calculate_clv else {},
-        "health": model_health() if model_health else "unknown",
-        "props_count": len(games_cache.get("props", []))
+        "roi": calculate_roi(),
+        "clv": calculate_clv(),
+        "health": model_health()
     }
-
-# --------------------------------------------------
-# 🖥 UI
-# --------------------------------------------------
-
-@app.get("/ui", response_class=HTMLResponse)
-def ui():
-    return """
-    <html>
-    <body style="background:#0f172a;color:white;font-family:sans-serif;padding:20px">
-    <h1>🔥 Betting Dashboard</h1>
-    <div id="data"></div>
-
-    <script>
-    async function load(){
-        let d = await fetch('/dashboard').then(r=>r.json());
-        let p = await fetch('/props').then(r=>r.json());
-
-        let html = `<h2>ROI: ${d.roi?.roi || 0}%</h2>`;
-
-        p.forEach(x=>{
-            html += `<div>
-                ${x.player} ${x.stat} | Edge: ${x.edge} | Bet: ${x.bet} | Size: $${x.bet_size}
-            </div>`;
-        });
-
-        document.getElementById('data').innerHTML = html;
-    }
-
-    setInterval(load,3000);
-    load();
-    </script>
-    </body>
-    </html>
-    """
