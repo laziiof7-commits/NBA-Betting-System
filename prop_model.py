@@ -90,6 +90,15 @@ def evaluate_prop(player, line, stat="points", **kwargs):
 
 def is_good_prop(prop):
 
+if not prop:
+return False
+
+return (
+abs(prop["edge"]) > 1.0
+and prop["probability"] > 0.55
+and prop["confidence"] > 0.20
+)
+
     if not prop:
         return False
 
