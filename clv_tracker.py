@@ -1,3 +1,7 @@
+# --------------------------------------------------
+# 📈 CLV TRACKER (PRO MODE - FIXED + EXTENDED)
+# --------------------------------------------------
+
 import csv
 import os
 import json
@@ -11,18 +15,18 @@ CLV_DATA = []
 LIVE_CLV = []
 BET_HISTORY = []
 
+PROP_CLV_STORE = {}
+
 BET_LOG_FILE = "bet_history.csv"
 JSON_LOG_FILE = "bet_history.json"
 
-
 # --------------------------------------------------
-# LOAD EXISTING BETS (PERSISTENCE 🔥)
+# LOAD / SAVE
 # --------------------------------------------------
 
 def load_bets():
 
     if os.path.exists(JSON_LOG_FILE):
-
         with open(JSON_LOG_FILE, "r") as f:
             data = json.load(f)
 
@@ -37,12 +41,56 @@ def save_all_bets():
     with open(JSON_LOG_FILE, "w") as f:
         json.dump(BET_HISTORY, f, indent=2)
 
+# --------------------------------------------------
+# 🔥 PROP CLV TRACKING (REAL-TIME ENGINE)
+# --------------------------------------------------
+
+def record_prop_line(player, stat, line):
+
+    key = f"{player}-{stat}"
+
+    if key not in PROP_CLV_STORE:
+        PROP_CLV_STORE[key] = {
+            "open_line": line,
+            "history": [line],
+            "clv": 0
+        }
+
+
+def update_prop_line(player, stat, new_line):
+
+    key = f"{player}-{stat}"
+
+    if key not in PROP_CLV_STORE:
+        return 0
+
+    PROP_CLV_STORE[key]["history"].append(new_line)
+
+    open_line = PROP_CLV_STORE[key]["open_line"]
+    clv = round(new_line - open_line, 2)
+
+    PROP_CLV_STORE[key]["clv"] = clv
+
+    return clv
+
+
+def get_prop_clv(player, stat):
+
+    key = f"{player}-{stat}"
+
+    if key not in PROP_CLV_STORE:
+        return 0
+
+    return PROP_CLV_STORE[key].get("clv", 0)
 
 # --------------------------------------------------
-# RECORD PRE-GAME CLV
+# PRE-GAME CLV (LEGACY)
 # --------------------------------------------------
 
 def record_clv(model_line, bet_line, closing_line):
+
+    if closing_line is None:
+        return
 
     clv = closing_line - bet_line
 
@@ -54,9 +102,8 @@ def record_clv(model_line, bet_line, closing_line):
         "timestamp": datetime.now().isoformat()
     })
 
-
 # --------------------------------------------------
-# LIVE CLV TRACKING (REAL-TIME 🔥)
+# LIVE CLV
 # --------------------------------------------------
 
 def record_live_clv(bet_line, current_line):
@@ -75,9 +122,8 @@ def average_live_clv():
 
     return round(sum(LIVE_CLV) / len(LIVE_CLV), 2)
 
-
 # --------------------------------------------------
-# AVERAGE CLV
+# AVERAGES
 # --------------------------------------------------
 
 def average_clv():
@@ -87,10 +133,6 @@ def average_clv():
 
     return round(sum(x["clv"] for x in CLV_DATA) / len(CLV_DATA), 2)
 
-
-# --------------------------------------------------
-# CLV QUALITY SCORE
-# --------------------------------------------------
 
 def clv_quality():
 
@@ -105,9 +147,8 @@ def clv_quality():
     else:
         return "⚠️ NEGATIVE"
 
-
 # --------------------------------------------------
-# 🔥 EDGE VS CLV CORRELATION (PRO LEVEL)
+# EDGE vs CLV CORRELATION
 # --------------------------------------------------
 
 def edge_clv_correlation():
@@ -123,7 +164,6 @@ def edge_clv_correlation():
         return round(np.corrcoef(edges, clvs)[0, 1], 3)
     except:
         return 0
-
 
 # --------------------------------------------------
 # BET LOGGING
@@ -163,9 +203,8 @@ def save_bet_to_csv(bet):
 
         writer.writerow(bet)
 
-
 # --------------------------------------------------
-# 🔥 UPDATE CLOSING LINES FROM API
+# UPDATE CLOSING LINES
 # --------------------------------------------------
 
 def update_closing_lines(api_games):
@@ -188,7 +227,6 @@ def update_closing_lines(api_games):
                     if close:
                         bet["closing_line"] = close
 
-                        # calculate CLV
                         if bet["bet_type"] == "OVER":
                             bet["clv"] = round(close - bet["line"], 2)
                         else:
@@ -196,9 +234,8 @@ def update_closing_lines(api_games):
 
     save_all_bets()
 
-
 # --------------------------------------------------
-# AUTO GRADING BETS
+# AUTO GRADING
 # --------------------------------------------------
 
 def grade_bet(actual_total):
@@ -212,25 +249,24 @@ def grade_bet(actual_total):
 
             if actual_total > bet["line"]:
                 bet["result"] = "WIN"
-                bet["profit"] = bet["stake"] * 100
+                bet["profit"] = bet["stake"] * 0.91
             else:
                 bet["result"] = "LOSS"
-                bet["profit"] = -bet["stake"] * 110
+                bet["profit"] = -bet["stake"]
 
         elif bet["bet_type"] == "UNDER":
 
             if actual_total < bet["line"]:
                 bet["result"] = "WIN"
-                bet["profit"] = bet["stake"] * 100
+                bet["profit"] = bet["stake"] * 0.91
             else:
                 bet["result"] = "LOSS"
-                bet["profit"] = -bet["stake"] * 110
+                bet["profit"] = -bet["stake"]
 
     save_all_bets()
 
-
 # --------------------------------------------------
-# ROI CALCULATION
+# ROI
 # --------------------------------------------------
 
 def calculate_roi():
@@ -239,7 +275,7 @@ def calculate_roi():
         return {"roi": 0, "profit": 0}
 
     total_profit = sum(b["profit"] for b in BET_HISTORY)
-    total_staked = sum(b["stake"] * 110 for b in BET_HISTORY)
+    total_staked = sum(b["stake"] for b in BET_HISTORY)
 
     roi = (total_profit / total_staked) * 100 if total_staked > 0 else 0
 
@@ -248,9 +284,8 @@ def calculate_roi():
         "profit": round(total_profit, 2)
     }
 
-
 # --------------------------------------------------
-# PROFIT CURVE 📈
+# PROFIT CURVE
 # --------------------------------------------------
 
 def profit_curve():
@@ -264,9 +299,8 @@ def profit_curve():
 
     return curve
 
-
 # --------------------------------------------------
-# MODEL HEALTH (REAL SHARP METRIC)
+# MODEL HEALTH
 # --------------------------------------------------
 
 def model_health():
@@ -282,7 +316,6 @@ def model_health():
         return "STABLE"
     else:
         return "⚠️ NEEDS ADJUSTMENT"
-
 
 # --------------------------------------------------
 # SUMMARY
