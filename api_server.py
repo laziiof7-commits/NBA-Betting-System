@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🚀 API SERVER (FINAL PRO MODE)
+# 🚀 API SERVER (FINAL PRO MODE - FIXED)
 # --------------------------------------------------
 
 from fastapi import FastAPI
@@ -25,7 +25,6 @@ project = safe_import("prop_model", "project")
 log_prop = safe_import("prop_tracker", "log_prop")
 get_odds_props = safe_import("odds_prop_scraper", "get_odds_props")
 
-# 🔥 NEW SYSTEM IMPORTS
 group_props = safe_import("line_engine", "group_props")
 get_best_lines = safe_import("line_engine", "get_best_lines")
 track_clv = safe_import("line_engine", "track_clv")
@@ -54,7 +53,7 @@ if not group_props:
     def group_props(x): return {}
 
 if not get_best_lines:
-    def get_best_lines(x): return []
+    def get_best_lines(x): return x  # 🔥 SAFE fallback
 
 if not track_clv:
     def track_clv(*args): return 0
@@ -77,96 +76,109 @@ games_cache = {}
 ALERTED = set()
 
 # --------------------------------------------------
-# 🔥 FALLBACK
+# 🔥 FIXED FALLBACK (NEVER RETURNS 0)
 # --------------------------------------------------
 
 def generate_fallback_props():
 
-players = [
-"LeBron James",
-"Stephen Curry",
-"Luka Doncic",
-"Nikola Jokic"
-]
+    players = [
+        "LeBron James",
+        "Stephen Curry",
+        "Luka Doncic",
+        "Nikola Jokic"
+    ]
 
-stats = ["points", "rebounds", "assists"]
+    stats = ["points", "rebounds", "assists"]
 
-base_lines = {
-"points": (24, 32),
-"rebounds": (6, 12),
-"assists": (5, 10)
-}
+    base_lines = {
+        "points": (24, 32),
+        "rebounds": (6, 12),
+        "assists": (5, 10)
+    }
 
-props = []
+    props = []
 
-for player in players:
-for stat in stats:
+    for player in players:
+        for stat in stats:
 
-proj = project(player, stat)
+            try:
+                proj = project(player, stat)
+            except:
+                proj = None
 
-if proj is not None:
-line = round(proj - random.uniform(0.5, 3.0), 1)
-else:
-low, high = base_lines[stat]
-line = round(random.uniform(low, high), 1)
+            if proj is not None:
+                line = round(proj - random.uniform(0.5, 3.0), 1)
+            else:
+                low, high = base_lines[stat]
+                line = round(random.uniform(low, high), 1)
 
-props.append({
-"player": player,
-"stat": stat,
-"line": line,
-"book": "fallback"
-})
+            props.append({
+                "player": player,
+                "stat": stat,
+                "line": line,
+                "book": "fallback"
+            })
 
-print(f"⚠️ MODEL-BASED FALLBACK: {len(props)} props")
-return props
+    print(f"⚠️ MODEL-BASED FALLBACK: {len(props)} props")
+    return props
 
 # --------------------------------------------------
-# 🔥 PROPS ENGINE (FULLY UPGRADED)
+# 🔥 PROPS ENGINE
 # --------------------------------------------------
 
 def build_props():
 
-    raw_props = get_odds_props()
+    raw_props = []
+
+    try:
+        raw_props = get_odds_props()
+    except Exception as e:
+        print("❌ ODDS ERROR:", e)
 
     if not raw_props:
         print("🚨 USING FALLBACK")
         raw_props = generate_fallback_props()
     else:
-        print("📡 USING REAL ODDS")
+        print(f"📡 USING REAL ODDS ({len(raw_props)})")
 
-    # 🔥 GROUP + BEST LINE
-    grouped = group_props(raw_props)
-    best_lines = get_best_lines(grouped)
+    # 🔥 GROUPING SAFE
+    try:
+        grouped = group_props(raw_props)
+        best_lines = get_best_lines(grouped)
+    except Exception:
+        best_lines = raw_props
 
     props_out = []
 
     for p in best_lines:
 
         try:
+            player = p.get("player")
+            stat = p.get("stat")
+
+            # 🔥 HANDLE BOTH FORMATS
+            line = p.get("best_over_line") or p.get("line")
+
+            if not player or not stat or line is None:
+                continue
+
             result = evaluate_prop(
-                player=p["player"],
-                line=p["best_over_line"],
-                stat=p["stat"]
+                player=player,
+                line=line,
+                stat=stat
             )
 
             if not result:
                 continue
 
-            # 🔥 CLV
-            clv = track_clv(
-                p["player"],
-                p["stat"],
-                p["best_over_line"]
-            )
-
+            clv = track_clv(player, stat, line)
             result["clv"] = clv
 
             print(
                 f"📊 {result['player']} {result['stat']} | "
-                f"Edge: {result['edge']} | CLV: {clv}"
+                f"Edge: {result.get('edge')} | CLV: {clv}"
             )
 
-            # 🔥 BET FILTER
             if not should_bet(
                 result.get("score"),
                 result.get("probability"),
@@ -174,7 +186,6 @@ def build_props():
             ):
                 continue
 
-            # 🔥 BET SIZE (REAL ENGINE)
             size = get_bet_size(
                 probability=result.get("probability"),
                 edge_score=result.get("score"),
@@ -187,7 +198,7 @@ def build_props():
 
             result["bet_size"] = size
 
-            key = f"{p['player']}-{p['stat']}-{p['best_over_line']}"
+            key = f"{player}-{stat}-{line}"
 
             if key not in ALERTED:
                 ALERTED.add(key)
@@ -199,7 +210,6 @@ def build_props():
             print("❌ PROP ERROR:", e)
 
     print(f"✅ GOOD PROPS: {len(props_out)}")
-
     return props_out
 
 # --------------------------------------------------
@@ -207,7 +217,6 @@ def build_props():
 # --------------------------------------------------
 
 def build_games():
-
     return {
         "props": build_props(),
         "timestamp": datetime.utcnow().isoformat()
@@ -236,11 +245,8 @@ def refresh_loop():
 
 @app.on_event("startup")
 def startup():
-
-    print("🚀 SYSTEM STARTED (PRO MODE)")
-
-    thread = threading.Thread(target=refresh_loop, daemon=True)
-    thread.start()
+    print("🚀 SYSTEM STARTED (PRO MODE - FIXED)")
+    threading.Thread(target=refresh_loop, daemon=True).start()
 
 # --------------------------------------------------
 # 🌐 API
