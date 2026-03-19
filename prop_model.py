@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🔥 PROP MODEL (REALISTIC + CALIBRATED)
+# 🔥 PROP MODEL (STABLE + NO WEIGHTS BUG)
 # --------------------------------------------------
 
 def safe_import(module, func, default):
@@ -9,6 +9,7 @@ def safe_import(module, func, default):
     except:
         return default
 
+# SAFE IMPORTS
 project_minutes = safe_import("minutes_model", "project_minutes", lambda p: 34)
 project_usage = safe_import("usage_model", "project_usage", lambda p: 0.25)
 
@@ -26,15 +27,11 @@ BASELINES = {
 # PLAYER ADJUSTMENT
 # --------------------------------------------------
 
-def player_adjustment(player, stat, minutes, usage):
+def player_adjustment(player, minutes, usage):
 
-    # normalize minutes (NBA avg ≈ 34)
     min_factor = minutes / 34
-
-    # normalize usage (NBA avg ≈ 0.25)
     usage_factor = usage / 0.25
 
-    # star boost
     if usage > 0.30:
         usage_factor *= 1.08
 
@@ -51,7 +48,7 @@ def project(player, stat):
 
     base = BASELINES.get(stat, 10)
 
-    adj = player_adjustment(player, stat, minutes, usage)
+    adj = player_adjustment(player, minutes, usage)
 
     projection = base * adj
 
@@ -69,7 +66,6 @@ def evaluate_prop(player, line, stat="points", **kwargs):
 
         edge = projection - line
 
-        # better probability scaling
         probability = max(min(0.5 + edge / 12, 0.85), 0.45)
 
         confidence = min((abs(edge) / 8) * probability, 1)
@@ -86,11 +82,11 @@ def evaluate_prop(player, line, stat="points", **kwargs):
         }
 
     except Exception as e:
-        print("❌ MODEL ERROR:", e)
+        print("❌ PROP MODEL ERROR:", e)
         return None
 
 # --------------------------------------------------
-# FILTER (TIGHT)
+# FILTER
 # --------------------------------------------------
 
 def is_good_prop(prop):
