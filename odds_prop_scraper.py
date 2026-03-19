@@ -1,76 +1,84 @@
 # --------------------------------------------------
-# 📊 ODDS SCRAPER (REAL API + MULTI-BOOK)
+# 📊 MULTI-BOOK PLAYER + GAME SCRAPER (REAL)
 # --------------------------------------------------
 
-import requests
-import os
+from prizepicks_scraper import get_prizepicks_props
+from draftkings_scraper import get_dk_props
+from fanduel_scraper import get_fd_props
 
-API_KEY = os.getenv("ODDS_API_KEY")
-
-SPORT = "basketball_nba"
-
-BOOKS = ["draftkings", "fanduel"]
+def normalize_name(name):
+    return name.lower().replace(".", "").strip()
 
 def get_odds_props():
 
-    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds/"
+    all_props = []
 
-    params = {
-        "apiKey": API_KEY,
-        "regions": "us",
-        "markets": "spreads,totals",
-        "oddsFormat": "american"
-    }
-
+    # ---------------- PRIZEPICKS ----------------
     try:
-        res = requests.get(url, params=params, timeout=10)
-        data = res.json()
+        pp = get_prizepicks_props()
+        for p in pp:
+            all_props.append({
+                "player": normalize_name(p["player"]),
+                "stat": p["stat"],
+                "line": p["line"],
+                "book": "pp"
+            })
     except Exception as e:
-        print("❌ Odds API error:", e)
-        return []
+        print("❌ PP ERROR:", e)
 
-    props = []
+    # ---------------- DRAFTKINGS ----------------
+    try:
+        dk = get_dk_props()
+        for p in dk:
+            all_props.append({
+                "player": normalize_name(p["player"]),
+                "stat": p["stat"],
+                "line": p["line"],
+                "book": "dk"
+            })
+    except Exception as e:
+        print("❌ DK ERROR:", e)
 
-    for game in data:
+    # ---------------- FANDUEL ----------------
+    try:
+        fd = get_fd_props()
+        for p in fd:
+            all_props.append({
+                "player": normalize_name(p["player"]),
+                "stat": p["stat"],
+                "line": p["line"],
+                "book": "fd"
+            })
+    except Exception as e:
+        print("❌ FD ERROR:", e)
 
-        home = game.get("home_team")
-        away = game.get("away_team")
+    # ---------------- GROUP + BEST LINE ----------------
+    grouped = {}
 
-        game_name = f"{away} @ {home}"
+    for p in all_props:
 
-        for book in game.get("bookmakers", []):
+        key = f"{p['player']}-{p['stat']}"
 
-            if book["key"] not in BOOKS:
-                continue
+        if key not in grouped:
+            grouped[key] = []
 
-            for market in book.get("markets", []):
+        grouped[key].append(p)
 
-                # ---------------- SPREAD ----------------
-                if market["key"] == "spreads":
+    best_lines = []
 
-                    for outcome in market["outcomes"]:
+    for key, lines in grouped.items():
 
-                        props.append({
-                            "game": game_name,
-                            "stat": "spread",
-                            "team": outcome["name"],
-                            "line": outcome["point"],
-                            "book": book["key"]
-                        })
+        # 🔥 BEST LINE = lowest for over, highest for under
+        best = min(lines, key=lambda x: x["line"])
 
-                # ---------------- TOTAL ----------------
-                if market["key"] == "totals":
+        best_lines.append({
+            "player": best["player"],
+            "stat": best["stat"],
+            "line": best["line"],
+            "books": [x["book"] for x in lines],
+            "raw": lines
+        })
 
-                    for outcome in market["outcomes"]:
+    print(f"📊 UNIFIED PLAYER PROPS: {len(best_lines)}")
 
-                        props.append({
-                            "game": game_name,
-                            "stat": "total",
-                            "side": outcome["name"],
-                            "line": outcome["point"],
-                            "book": book["key"]
-                        })
-
-    print(f"📊 Odds API games: {len(data)}")
-
-    return props
+    return best_lines
