@@ -1,5 +1,5 @@
 # --------------------------------------------------
-# 🚀 API SERVER (FIXED + REALISTIC)
+# 🚀 ELITE API SERVER (STABLE + REALISTIC FIXED)
 # --------------------------------------------------
 
 from fastapi import FastAPI
@@ -8,54 +8,38 @@ import time
 from datetime import datetime
 import requests
 import os
+import random
 
-# ---------------- SAFE IMPORT ----------------
+# ---------------- SAFE IMPORTS ----------------
 
-def safe_import(module):
+def safe_import(module, func=None):
     try:
-        return __import__(module, fromlist=["*"])
+        m = __import__(module, fromlist=[func] if func else [])
+        return getattr(m, func) if func else m
     except:
         return None
 
-alerts = safe_import("alerts")
-prop_model = safe_import("prop_model")
-prop_tracker = safe_import("prop_tracker")
+evaluate_prop = safe_import("prop_model", "evaluate_prop")
+is_good_prop = safe_import("prop_model", "is_good_prop")
+prop_bet_size = safe_import("prop_model", "prop_bet_size")
+log_prop = safe_import("prop_tracker", "log_prop")
 
-# ---------------- SAFE WRAPPERS ----------------
+# ---------------- FALLBACK DEFAULTS ----------------
 
-def send_alert(msg):
-    try:
-        if alerts:
-            alerts.send_discord_alert(msg)
-        else:
-            print(msg)
-    except:
-        print(msg)
+if not evaluate_prop:
+    def evaluate_prop(**kwargs): return None
 
-def evaluate_prop_safe(**kwargs):
-    try:
-        return prop_model.evaluate_prop(**kwargs)
-    except:
-        return None
+if not is_good_prop:
+    def is_good_prop(x): return False
 
-def is_good_prop_safe(p):
-    try:
-        return prop_model.is_good_prop(p)
-    except:
-        return False
+if not prop_bet_size:
+    def prop_bet_size(*args, **kwargs): return 0
 
-def bet_size_safe(p):
-    try:
-        return prop_model.prop_bet_size(p, base_size=10)
-    except:
-        return 0
+if not log_prop:
+    def log_prop(x): pass
 
-def log_prop_safe(p):
-    try:
-        if prop_tracker:
-            prop_tracker.log_prop(p)
-    except:
-        pass
+# 🔥 HARD BLOCK (KEEP)
+os.environ["DISABLE_PLAYER_DATA"] = "1"
 
 # ---------------- INIT ----------------
 
@@ -66,47 +50,67 @@ games_cache = {}
 ALERTED = set()
 
 # --------------------------------------------------
-# 🔥 REALISTIC FALLBACK (FIXED)
+# 🧠 STABLE RANDOM (NO LINE JUMPING)
+# --------------------------------------------------
+
+def stable_rand(player, stat, low, high):
+    seed = hash(player + stat) % 100000
+    random.seed(seed)
+    return random.randint(low, high)
+
+# --------------------------------------------------
+# 🔥 REALISTIC FALLBACK PROPS (FINAL FIX)
 # --------------------------------------------------
 
 def generate_fallback_props():
 
-    realistic_lines = {
-        "LeBron James": {"points": 27.5, "rebounds": 8.5, "assists": 7.5},
-        "Stephen Curry": {"points": 28.5, "rebounds": 5.5, "assists": 6.5},
-        "Luka Doncic": {"points": 32.5, "rebounds": 9.5, "assists": 8.5},
-        "Nikola Jokic": {"points": 26.5, "rebounds": 12.5, "assists": 9.5},
-    }
+    players = [
+        "LeBron James",
+        "Stephen Curry",
+        "Luka Doncic",
+        "Nikola Jokic"
+    ]
 
     props = []
 
-    for player, stats in realistic_lines.items():
-        for stat, line in stats.items():
-            props.append({
-                "player": player,
-                "stat": stat,
-                "line": line
-            })
+    for player in players:
+
+        props.append({
+            "player": player,
+            "stat": "points",
+            "line": stable_rand(player, "points", 28, 34)
+        })
+
+        props.append({
+            "player": player,
+            "stat": "rebounds",
+            "line": stable_rand(player, "rebounds", 8, 13)
+        })
+
+        props.append({
+            "player": player,
+            "stat": "assists",
+            "line": stable_rand(player, "assists", 7, 11)
+        })
 
     print(f"⚠️ REALISTIC FALLBACK: {len(props)} props")
 
     return props
 
 # --------------------------------------------------
-# 🔥 BUILD PROPS
+# 🔥 PROPS ENGINE
 # --------------------------------------------------
 
 def build_props():
 
     props_out = []
 
-    # ❌ DISABLE BROKEN SOURCES
     raw_props = generate_fallback_props()
 
     for p in raw_props:
 
         try:
-            result = evaluate_prop_safe(
+            result = evaluate_prop(
                 player=p["player"],
                 line=p["line"],
                 stat=p["stat"]
@@ -115,25 +119,19 @@ def build_props():
             if not result:
                 continue
 
-            # only print useful edges
-            if abs(result["edge"]) > 1:
-                print(f"📊 {result['player']} {result['stat']} | Edge: {result['edge']}")
+            # 📊 LOG
+            print(f"📊 {result['player']} {result['stat']} | Edge: {result['edge']}")
 
-            if is_good_prop_safe(result):
+            if is_good_prop(result):
 
-                size = bet_size_safe(result)
-                result["bet_size"] = size
+                size = prop_bet_size(result, base_size=10)
 
-                key = f"{p['player']}-{p['stat']}"
+                key = f"{p['player']}-{p['stat']}-{p['line']}"
 
                 if key not in ALERTED:
-                    ALERTED.add(key)
-                    log_prop_safe(result)
 
-                    send_alert(
-                        f"🔥 {result['player']} {result['stat']} "
-                        f"{result['bet']} | Edge: {result['edge']} | Size: ${size}"
-                    )
+                    ALERTED.add(key)
+                    log_prop(result)
 
                 props_out.append(result)
 
@@ -145,7 +143,18 @@ def build_props():
     return props_out
 
 # --------------------------------------------------
-# CORE LOOP
+# 🔥 CORE LOOP
+# --------------------------------------------------
+
+def build_games():
+
+    return {
+        "props": build_props(),
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+# --------------------------------------------------
+# 🔄 BACKGROUND LOOP
 # --------------------------------------------------
 
 def refresh_loop():
@@ -155,23 +164,26 @@ def refresh_loop():
     while True:
         try:
             print("\n🔄 SYSTEM UPDATE\n")
-            games_cache = {"props": build_props()}
+            games_cache = build_games()
         except Exception as e:
             print("❌ LOOP ERROR:", e)
 
         time.sleep(REFRESH_INTERVAL)
 
 # --------------------------------------------------
-# STARTUP
+# 🚀 STARTUP
 # --------------------------------------------------
 
 @app.on_event("startup")
 def startup():
+
     print("🚀 SYSTEM STARTED (STABLE MODE)")
-    threading.Thread(target=refresh_loop, daemon=True).start()
+
+    thread = threading.Thread(target=refresh_loop, daemon=True)
+    thread.start()
 
 # --------------------------------------------------
-# API
+# 🌐 API
 # --------------------------------------------------
 
 @app.get("/")
