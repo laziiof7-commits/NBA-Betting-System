@@ -1,12 +1,11 @@
 # --------------------------------------------------
-# 🚀 ELITE API SERVER (STABLE + REALISTIC FIXED)
+# 🚀 API SERVER (FINAL STABLE VERSION - LOOP FIXED)
 # --------------------------------------------------
 
 from fastapi import FastAPI
 import threading
 import time
 from datetime import datetime
-import requests
 import os
 import random
 
@@ -22,6 +21,7 @@ def safe_import(module, func=None):
 evaluate_prop = safe_import("prop_model", "evaluate_prop")
 is_good_prop = safe_import("prop_model", "is_good_prop")
 prop_bet_size = safe_import("prop_model", "prop_bet_size")
+project = safe_import("prop_model", "project")
 log_prop = safe_import("prop_tracker", "log_prop")
 
 # ---------------- FALLBACK DEFAULTS ----------------
@@ -35,10 +35,13 @@ if not is_good_prop:
 if not prop_bet_size:
     def prop_bet_size(*args, **kwargs): return 0
 
+if not project:
+    def project(player, stat): return None
+
 if not log_prop:
     def log_prop(x): pass
 
-# 🔥 HARD BLOCK (KEEP)
+# 🔥 HARD BLOCK
 os.environ["DISABLE_PLAYER_DATA"] = "1"
 
 # ---------------- INIT ----------------
@@ -50,16 +53,7 @@ games_cache = {}
 ALERTED = set()
 
 # --------------------------------------------------
-# 🧠 STABLE RANDOM (NO LINE JUMPING)
-# --------------------------------------------------
-
-def stable_rand(player, stat, low, high):
-    seed = hash(player + stat) % 100000
-    random.seed(seed)
-    return random.randint(low, high)
-
-# --------------------------------------------------
-# 🔥 REALISTIC FALLBACK PROPS (FINAL FIX)
+# 🔥 MODEL-BASED FALLBACK (FINAL FIX)
 # --------------------------------------------------
 
 def generate_fallback_props():
@@ -71,29 +65,28 @@ def generate_fallback_props():
         "Nikola Jokic"
     ]
 
+    stats = ["points", "rebounds", "assists"]
+
     props = []
 
     for player in players:
+        for stat in stats:
 
-        props.append({
-            "player": player,
-            "stat": "points",
-            "line": stable_rand(player, "points", 28, 34)
-        })
+            proj = project(player, stat)
 
-        props.append({
-            "player": player,
-            "stat": "rebounds",
-            "line": stable_rand(player, "rebounds", 8, 13)
-        })
+            if proj is None:
+                continue
 
-        props.append({
-            "player": player,
-            "stat": "assists",
-            "line": stable_rand(player, "assists", 7, 11)
-        })
+            # 🔥 KEY FIX: line built FROM model
+            line = round(proj + random.uniform(-2.5, 2.5), 1)
 
-    print(f"⚠️ REALISTIC FALLBACK: {len(props)} props")
+            props.append({
+                "player": player,
+                "stat": stat,
+                "line": line
+            })
+
+    print(f"⚠️ MODEL-BASED FALLBACK: {len(props)} props")
 
     return props
 
@@ -104,7 +97,6 @@ def generate_fallback_props():
 def build_props():
 
     props_out = []
-
     raw_props = generate_fallback_props()
 
     for p in raw_props:
@@ -119,17 +111,14 @@ def build_props():
             if not result:
                 continue
 
-            # 📊 LOG
             print(f"📊 {result['player']} {result['stat']} | Edge: {result['edge']}")
 
             if is_good_prop(result):
 
                 size = prop_bet_size(result, base_size=10)
-
                 key = f"{p['player']}-{p['stat']}-{p['line']}"
 
                 if key not in ALERTED:
-
                     ALERTED.add(key)
                     log_prop(result)
 
@@ -143,7 +132,7 @@ def build_props():
     return props_out
 
 # --------------------------------------------------
-# 🔥 CORE LOOP
+# 🔄 CORE LOOP
 # --------------------------------------------------
 
 def build_games():
@@ -154,7 +143,7 @@ def build_games():
     }
 
 # --------------------------------------------------
-# 🔄 BACKGROUND LOOP
+# 🔁 BACKGROUND LOOP
 # --------------------------------------------------
 
 def refresh_loop():
@@ -177,7 +166,7 @@ def refresh_loop():
 @app.on_event("startup")
 def startup():
 
-    print("🚀 SYSTEM STARTED (STABLE MODE)")
+    print("🚀 SYSTEM STARTED (FINAL MODE)")
 
     thread = threading.Thread(target=refresh_loop, daemon=True)
     thread.start()
