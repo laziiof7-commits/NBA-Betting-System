@@ -1,22 +1,19 @@
 # --------------------------------------------------
-# 🔥 DRAFTKINGS SCRAPER (STABLE + CLEAN)
+# 🔥 DRAFTKINGS SCRAPER (UNBLOCKED VERSION)
 # --------------------------------------------------
 
 from request_manager import safe_get
+import random
+import time
 
 URL = "https://sportsbook.draftkings.com/sites/US-SB/api/v5/eventgroups/42648?format=json"
 
 # --------------------------------------------------
-# CLEAN PLAYER NAME
+# STEALTH DELAY
 # --------------------------------------------------
 
-def clean_name(name):
-    return (
-        str(name)
-        .replace(" Jr.", "")
-        .replace(" Sr.", "")
-        .strip()
-    )
+def stealth_delay():
+    time.sleep(random.uniform(1.5, 4.0))
 
 # --------------------------------------------------
 # PARSE
@@ -31,13 +28,10 @@ def parse_props(data):
 
         for cat in categories:
 
-            subs = cat.get("offerSubcategoryDescriptors", [])
-
-            for sub in subs:
+            for sub in cat.get("offerSubcategoryDescriptors", []):
 
                 name = sub.get("name", "").lower()
 
-                # 🔥 only target core stats
                 if not any(x in name for x in ["points", "rebounds", "assists"]):
                     continue
 
@@ -47,34 +41,26 @@ def parse_props(data):
                     "assists"
                 )
 
-                offers = sub.get("offers", [])
+                for offer in sub.get("offers", []):
 
-                for offer_group in offers:
-
-                    for offer in offer_group:
+                    for o in offer:
 
                         try:
-                            outcomes = offer.get("outcomes", [])
+                            outcome = o["outcomes"][0]
 
-                            if not outcomes:
-                                continue
-
-                            outcome = outcomes[0]
-
-                            player = clean_name(outcome.get("participant"))
                             line = outcome.get("line")
 
-                            if not player or line is None:
+                            if line is None:
                                 continue
 
                             props.append({
-                                "player": player,
+                                "player": outcome.get("participant"),
                                 "stat": stat,
                                 "line": float(line),
-                                "book": "DraftKings"  # 🔥 REQUIRED
+                                "book": "draftkings"
                             })
 
-                        except Exception:
+                        except:
                             continue
 
     except Exception as e:
@@ -83,22 +69,25 @@ def parse_props(data):
     return props
 
 # --------------------------------------------------
-# MAIN
+# MAIN (RETRY + STEALTH)
 # --------------------------------------------------
 
 def get_dk_props():
 
-    data = safe_get(URL)
+    for attempt in range(3):
 
-    if not data:
-        print("❌ DK BLOCKED / NO DATA")
-        return []
+        stealth_delay()
 
-    props = parse_props(data)
+        data = safe_get(URL)
 
-    if not props:
-        print("⚠️ DK returned 0 props")
-    else:
-        print(f"📊 DK PROPS: {len(props)}")
+        if data:
+            props = parse_props(data)
 
-    return props
+            if props:
+                print(f"📊 DK PROPS: {len(props)}")
+                return props
+
+        print(f"⚠️ DK retry {attempt+1}")
+
+    print("❌ DK BLOCKED / NO DATA")
+    return []
