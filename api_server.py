@@ -184,7 +184,7 @@ def build_props():
             # --------------------------------------------------
 
             # instead of killing everything, allow moderate edges
-            if abs(edge) < 0.5:
+            if abs(edge) < 0.25:
                 continue
 
             # ---------------- BET SIZE ----------------
